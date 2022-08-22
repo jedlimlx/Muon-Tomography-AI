@@ -1,8 +1,10 @@
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
+from layers.regularisation import StochasticDepth
 
-def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=None, activation="relu"):
+def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=None,
+                  activation="relu", drop_connect_rate=0.2):
     """A residual block.
     Args:
       x: input tensor.
@@ -34,7 +36,7 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
         x = Conv2D(4 * filters, 1, use_bias=False, name=name + "_3_conv")(x)
         x = BatchNormalization(name=name + "_3_bn")(x)
 
-        x = Add(name=name + "_add")([shortcut, x])
+        x = StochasticDepth(rate=drop_connect_rate, name=name + "_add")([shortcut, x])
         x = Activation(activation, name=name + "_out")(x)
         return x
 
