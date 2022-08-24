@@ -3,6 +3,7 @@ from tensorflow.keras.models import *
 
 from layers.regularisation import StochasticDepth
 
+
 def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=None,
                   activation="relu", drop_connect_rate=0.2):
     """A residual block.
@@ -14,7 +15,10 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
       conv_shortcut: default True, use convolution shortcut if True,
           otherwise identity shortcut.
       name: string, block label.
+      activation: string, the activation function to use
+      drop_connect_rate: string, the probability that the block will be skipped
     Returns:
+
       Output tensor for the residual block.
     """
 
@@ -43,21 +47,25 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
     return apply
 
 
-def ResidualStack(filters, blocks, stride=2, name=None, activation="relu"):
+def ResidualStack(filters, blocks, stride=2, name=None, activation="relu", drop_connect_rate=0.2):
     """A set of stacked residual blocks.
     Args:
       filters: integer, filters of the bottleneck layer in a block.
       blocks: integer, blocks in the stacked blocks.
       stride: default 2, stride of the first layer in the first block.
       name: string, stack label.
+      activation: string, the activation function to use
+      drop_connect_rate: string, the probability that the block will be skipped
     Returns:
       Output tensor for the stacked blocks.
     """
 
     def apply(x):
-        x = ResidualBlock(filters, stride=stride, name=name + "_block1", activation=activation)(x)
+        x = ResidualBlock(filters, stride=stride, name=name + "_block1", activation=activation,
+                          drop_connect_rate=drop_connect_rate)(x)
         for i in range(2, blocks + 1):
-            x = ResidualBlock(filters, conv_shortcut=False, name=name + "_block" + str(i), activation=activation)(x)
+            x = ResidualBlock(filters, conv_shortcut=False, name=name + "_block" + str(i), activation=activation,
+                              drop_connect_rate=drop_connect_rate)(x)
 
         return x
 
