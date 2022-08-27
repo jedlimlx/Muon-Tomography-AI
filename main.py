@@ -15,14 +15,14 @@ from layers import ResidualStack, ResidualBlock
 # hyperparameters
 ACTIVATION = "relu"
 BLOCKS = [2, 2, 2, 2, 2]
-
+FILTERS = 64
 
 # the skip connections in the U-Net
 def skip_connection_2d_to_3d():
     def apply(x):
         x = Conv2D(x.shape[2], 3, activation=ACTIVATION, padding="same")(x)
         x = Reshape((x.shape[1], x.shape[2], x.shape[2], 1))(x)
-        x = Conv3D(256, 3, activation=ACTIVATION, padding="same")(x)
+        x = Conv3D(4 * FILTERS, 3, activation=ACTIVATION, padding="same")(x)
 
         return x
 
@@ -53,13 +53,11 @@ def create_model(shape=(64, 64, 6)):
     output_skip = []
 
     inputs = Input(shape=shape)
+    x = Conv2D(4 * FILTERS, 3, padding="same", activation=ACTIVATION)(inputs)
 
     # Downward 2D part of U-Net
     for i in range(len(BLOCKS)):
-        if i == 0:
-            x = inputs
-
-        x, conv = stack(64, BLOCKS[i], name=f"stack_2d_{i}")(x)
+        x, conv = stack(FILTERS, BLOCKS[i], name=f"stack_2d_{i}")(x)
         output_2d.append(conv)
         output_skip.append(skip_connection_2d_to_3d()(conv))
 
@@ -69,9 +67,9 @@ def create_model(shape=(64, 64, 6)):
             x = output_skip[i]
         else:
             x = Concatenate()([output_skip[i], x])
-            x = Conv3D(256, 3, activation=ACTIVATION, name=f"stack_3d_{i}_reshape", padding="same")(x)
+            x = Conv3D(4 * FILTERS, 3, activation=ACTIVATION, name=f"stack_3d_{i}_reshape", padding="same")(x)
 
-        x, conv = stack(64, BLOCKS[i], dims=3, name=f"stack_3d_{i}", downsample=False)(x)
+        x, conv = stack(FILTERS, BLOCKS[i], dims=3, name=f"stack_3d_{i}", downsample=False)(x)
         output_3d.append(conv)
 
     model = Model(inputs=inputs, outputs=output_3d[-1])
@@ -100,3 +98,6 @@ def data_generator(directory=""):
 
     return detections_lst, voxels_lst
 
+
+if __name__ == "__main__":
+    model = create_model(shape=(64, 64, 6))
