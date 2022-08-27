@@ -47,12 +47,12 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
     return apply
 
 
-def create_model():
+def create_model(shape=(64, 64, 6)):
     output_2d = []
     output_3d = []
     output_skip = []
 
-    inputs = Input(shape=(128, 128, 256))
+    inputs = Input(shape=shape)
 
     # Downward 2D part of U-Net
     for i in range(len(BLOCKS)):
