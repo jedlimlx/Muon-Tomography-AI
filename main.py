@@ -94,7 +94,7 @@ def data_generator(directory=""):
             detections.append(np.expand_dims(np.load(f"{directory}/detections/{i}_orient_{j}.npy"), axis=-1))
 
         detections_lst.append(np.concatenate(detections, axis=-1))
-        voxels_lst.append(1 / (np.expand_dims(np.load(f"{directory}/voxels/run_{i}.npy") + 1e-8, axis=-1)))
+        voxels_lst.append(np.expand_dims(np.load(f"{directory}/voxels/run_{i}.npy"), axis=-1))
 
     return detections_lst, voxels_lst
 
