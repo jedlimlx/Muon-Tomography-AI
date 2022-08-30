@@ -70,7 +70,7 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
         x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False)(x)
         output_3d.append(conv)
 
-    outputs = Conv3D(64, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
+    outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
 
     model = Model(inputs=inputs, outputs=outputs)
     model.compile(optimizer=optimizer, loss=loss)
