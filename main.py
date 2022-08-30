@@ -32,11 +32,11 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
         conv = ResidualStack(filters, blocks, name=name, activation=activation,
                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         if downsample:
-            x = Dropout(dropout_rate)(conv)
+            x = Dropout(dropout_rate, name=name + "_dropout")(conv)
             x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         else:
-            x = Dropout(dropout_rate)(conv)
+            x = Dropout(dropout_rate, name=name + "_dropout")(conv)
             x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
 
         return x, conv
@@ -76,7 +76,7 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
     model.compile(optimizer=optimizer, loss=loss)
     model.summary()
 
-    model.load(weights)
+    if weights is not None: model.load(weights)
     return model
 
 
