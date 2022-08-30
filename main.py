@@ -27,16 +27,17 @@ def skip_connection_2d_to_3d(filters=64, activation="relu"):
 
 # a stack of blocks + pooling (returns the final block too)
 def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu",
-          drop_connect_rate=0.2, dims=2, downsample=True):
+          drop_connect_rate=0.2, dropout_rate=0.2, dims=2, downsample=True):
     def apply(x):
         conv = ResidualStack(filters, blocks, name=name, activation=activation,
                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         if downsample:
-            # x = MaxPooling2D(2, name=name + "_pooling_block")(conv)
+            x = Dropout(dropout_rate)(conv)
             x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
-                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(conv)
+                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         else:
-            x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(conv)
+            x = Dropout(dropout_rate)(conv)
+            x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
 
         return x, conv
 
