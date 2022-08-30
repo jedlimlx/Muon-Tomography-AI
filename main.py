@@ -45,7 +45,8 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
 
 
 def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activation="relu",
-                 optimizer="adam", loss="binary_crossentropy", weights=None):
+                 drop_connect_rate=0.2, dropout_rate=0.2, optimizer="adam",
+                 loss="binary_crossentropy", weights=None):
     output_2d = []
     output_3d = []
     output_skip = []
@@ -55,7 +56,8 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
 
     # Downward 2D part of U-Net
     for i in range(len(blocks)):
-        x, conv = stack(filters, blocks[i], name=f"stack_2d_{i}")(x)
+        x, conv = stack(filters, blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
+                        dropout_rate=dropout_rate, activation=activation)(x)
         output_2d.append(conv)
         output_skip.append(skip_connection_2d_to_3d(filters, activation)(conv))
 
@@ -67,7 +69,8 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
             x = Concatenate()([output_skip[i], x])
             x = Conv3D(4 * filters, 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
 
-        x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False)(x)
+        x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
+                        drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, activation=activation)(x)
         output_3d.append(conv)
 
     outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
