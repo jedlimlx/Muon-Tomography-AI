@@ -10,6 +10,7 @@ from tensorflow.keras.models import *
 
 from tensorflow.keras.utils import plot_model
 
+from losses import binary_dice_coef_loss
 from layers import ResidualStack, ResidualBlock
 
 
@@ -46,7 +47,7 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
 
 def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activation="relu",
                  drop_connect_rate=0.2, dropout_rate=0.2, optimizer="adam",
-                 loss="binary_crossentropy", weights=None):
+                 loss=binary_dice_coef_loss(), weights=None):
     output_2d = []
     output_3d = []
     output_skip = []
