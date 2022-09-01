@@ -342,12 +342,12 @@ class DropBlock3D(Layer):
             K.all(
                 K.stack(
                     [
-                        positions[:, :, 0] >= half_block_size,
-                        positions[:, :, 1] >= half_block_size,
-                        positions[:, :, 2] >= half_block_size,
-                        positions[:, :, 0] < self.height - half_block_size,
-                        positions[:, :, 1] < self.width - half_block_size,
-                        positions[:, :, 2] < self.depth - half_block_size
+                        positions[:, :, :, 0] >= half_block_size,
+                        positions[:, :, :, 1] >= half_block_size,
+                        positions[:, :, :, 2] >= half_block_size,
+                        positions[:, :, :, 0] < self.height - half_block_size,
+                        positions[:, :, :, 1] < self.width - half_block_size,
+                        positions[:, :, :, 2] < self.depth - half_block_size
                     ],
                     axis=-1,
                 ),
