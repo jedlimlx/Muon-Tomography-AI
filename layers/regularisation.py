@@ -1,7 +1,13 @@
+import tensorflow as tf
+
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import *
 
 from utils import normalize_tuple
+
+
+def _bernoulli(shape, mean):
+    return tf.nn.relu(tf.sign(mean - tf.random.uniform(shape, minval=0, maxval=1, dtype=tf.float32)))
 
 
 class StochasticDepth(Layer):
@@ -299,7 +305,7 @@ class DropBlock3D(Layer):
             mask = self._create_mask(tf.shape(inputs))
             output = inputs * mask
             output = tf.cond(self.scale,
-                             true_fn=lambda: output * tf.to_float(tf.size(mask)) / tf.reduce_sum(mask),
+                             true_fn=lambda: output * tf.cast(tf.size(mask), tf.float32) / tf.reduce_sum(mask),
                              false_fn=lambda: output)
             return output
 
@@ -314,7 +320,7 @@ class DropBlock3D(Layer):
         """This method only supports Eager Execution"""
         if keep_prob is not None:
             self.keep_prob = keep_prob
-        d, w, h = tf.to_float(self.d), tf.to_float(self.w), tf.to_float(self.h)
+        d, w, h = tf.cast(self.d, tf.float32), tf.cast(self.w, tf.float32), tf.cast(self.h, tf.float32)
         self.gamma = ((1. - self.keep_prob) * (d * w * h) / (self.block_size ** 3) /
                       ((d - self.block_size + 1) * (w - self.block_size + 1) * (h - self.block_size + 1)))
 
