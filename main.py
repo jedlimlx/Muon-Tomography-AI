@@ -3,7 +3,7 @@ import numpy as np
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
-from layers import ResidualStack, ResidualBlock, DropBlock2D
+from layers import ResidualStack, ResidualBlock, DropBlock2D, DropBlock3D
 from losses import binary_dice_coef_loss
 
 
@@ -26,11 +26,11 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
         conv = ResidualStack(filters, blocks, name=name, activation=activation,
                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         if downsample:
-            x = DropBlock2D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock").call(conv)
+            x = DropBlock2D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock2d").call(conv)
             x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         else:
-            x = Dropout(dropout_rate, name=name + "_dropout")(conv)
+            x = DropBlock3D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock3d")(conv)
             x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
 
         return x, conv
