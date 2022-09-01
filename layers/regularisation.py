@@ -6,10 +6,6 @@ from tensorflow.keras.layers import *
 from utils import normalize_tuple
 
 
-def _bernoulli(shape, mean):
-    return tf.nn.relu(tf.sign(mean - tf.random.uniform(shape, minval=0, maxval=1, dtype=tf.float32)))
-
-
 class StochasticDepth(Layer):
     """
     Implements the Stochastic Depth layer. It randomly drops residual branches
@@ -281,57 +277,118 @@ class DropBlock2D(Layer):
 
 
 class DropBlock3D(Layer):
-    def __init__(self, keep_prob, block_size, scale=True, **kwargs):
+    """See: https://arxiv.org/pdf/1810.12890.pdf"""
+
+    def __init__(self,
+                 block_size,
+                 keep_prob,
+                 sync_channels=False,
+                 data_format=None,
+                 **kwargs):
+        """Initialize the layer.
+        :param block_size: Size for each mask block.
+        :param keep_prob: Probability of keeping the original feature.
+        :param sync_channels: Whether to use the same dropout for all channels.
+        :param data_format: 'channels_first' or 'channels_last' (default).
+        :param kwargs: Arguments for parent class.
+        """
         super(DropBlock3D, self).__init__(**kwargs)
-        self.keep_prob = float(keep_prob) if isinstance(keep_prob, int) else keep_prob
-        self.block_size = int(block_size)
-        self.scale = tf.constant(scale, dtype=tf.bool) if isinstance(scale, bool) else scale
+        self.block_size = block_size
+        self.keep_prob = keep_prob
+        self.sync_channels = sync_channels
+        self.data_format = data_format
+        self.supports_masking = True
+        self.height = self.width = self.depth =  self.ones = self.zeros = None
+
+    def build(self, input_shape):
+        if self.data_format == 'channels_first':
+            self.height, self.width, self.depth = input_shape[2], input_shape[3], input_shape[4]
+        else:
+            self.height, self.width, self.depth = input_shape[1], input_shape[2], input_shape[3]
+
+        self.ones = K.ones((self.height, self.width, self.depth), name='ones')
+        self.zeros = K.zeros((self.height, self.width, self.depth), name='zeros')
+        super().build(input_shape)
+
+    def get_config(self):
+        config = {'block_size': self.block_size,
+                  'keep_prob': self.keep_prob,
+                  'sync_channels': self.sync_channels,
+                  'data_format': self.data_format}
+        base_config = super(DropBlock3D, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+    def compute_mask(self, inputs, mask=None):
+        return mask
 
     def compute_output_shape(self, input_shape):
         return input_shape
 
-    def build(self, input_shape):
-        assert len(input_shape) == 5
-        _, self.d, self.h, self.w, self.channel = input_shape.as_list()
-        # pad the mask
-        p1 = (self.block_size - 1) // 2
-        p0= (self.block_size - 1) - p1
-        self.padding = [[0, 0], [p0, p1], [p0, p1], [p0, p1], [0, 0]]
-        self.set_keep_prob()
-        super(DropBlock3D, self).build(input_shape)
+    def _get_gamma(self):
+        """Get the number of activation units to drop"""
+        height, width, depth = K.cast(self.height, K.floatx()), K.cast(self.width, K.floatx()), K.cast(self.depth, K.floatx())
+        block_size = K.constant(self.block_size, dtype=K.floatx())
+        return ((1.0 - self.keep_prob) / (block_size ** 2)) *\
+               (height * width * depth / ((height - block_size + 1.0) * (width - block_size + 1.0) * (depth - block_size + 1.0)))
 
-    def call(self, inputs, training=None, **kwargs):
-        def drop():
-            mask = self._create_mask(tf.shape(inputs))
-            output = inputs * mask
-            output = tf.cond(self.scale,
-                             true_fn=lambda: output * tf.cast(tf.size(mask), tf.float32) / tf.reduce_sum(mask),
-                             false_fn=lambda: output)
-            return output
+    def _compute_valid_seed_region(self):
+        positions = K.concatenate([
+            K.expand_dims(K.tile(K.expand_dims(K.arange(self.height), axis=1), [1, self.width, self.depth]), axis=-1),
+            K.expand_dims(K.tile(K.expand_dims(K.arange(self.width), axis=0), [self.height, 1, self.depth]), axis=-1),
+            K.expand_dims(K.tile(K.expand_dims(K.arange(self.depth), axis=2), [self.height, self.width, 1]), axis=-1),
+        ], axis=-1)
+        half_block_size = self.block_size // 2
+        valid_seed_region = K.switch(
+            K.all(
+                K.stack(
+                    [
+                        positions[:, :, 0] >= half_block_size,
+                        positions[:, :, 1] >= half_block_size,
+                        positions[:, :, 2] >= half_block_size,
+                        positions[:, :, 0] < self.height - half_block_size,
+                        positions[:, :, 1] < self.width - half_block_size,
+                        positions[:, :, 2] < self.depth - half_block_size
+                    ],
+                    axis=-1,
+                ),
+                axis=-1,
+            ),
+            self.ones,
+            self.zeros,
+        )
+        return K.expand_dims(K.expand_dims(valid_seed_region, axis=0), axis=-1)
 
-        if training is None:
-            training = K.learning_phase()
-        output = tf.cond(tf.logical_or(tf.logical_not(training), tf.equal(self.keep_prob, 1.0)),
-                         true_fn=lambda: inputs,
-                         false_fn=drop)
-        return output
+    def _compute_drop_mask(self, shape):
+        mask = K.random_binomial(shape, p=self._get_gamma())
+        mask *= self._compute_valid_seed_region()
+        mask = keras.layers.MaxPool3D(
+            pool_size=(self.block_size, self.block_size, self.block_size),
+            padding='same',
+            strides=1,
+            data_format='channels_last',
+        )(mask)
 
-    def set_keep_prob(self, keep_prob=None):
-        """This method only supports Eager Execution"""
-        if keep_prob is not None:
-            self.keep_prob = keep_prob
-        d, w, h = tf.cast(self.d, tf.float32), tf.cast(self.w, tf.float32), tf.cast(self.h, tf.float32)
-        self.gamma = ((1. - self.keep_prob) * (d * w * h) / (self.block_size ** 3) /
-                      ((d - self.block_size + 1) * (w - self.block_size + 1) * (h - self.block_size + 1)))
+        return 1.0 - mask
 
-    def _create_mask(self, input_shape):
-        sampling_mask_shape = tf.stack([input_shape[0],
-                                        self.d - self.block_size + 1,
-                                        self.h - self.block_size + 1,
-                                        self.w - self.block_size + 1,
-                                        self.channel])
-        mask = _bernoulli(sampling_mask_shape, self.gamma)
-        mask = tf.pad(mask, self.padding)
-        mask = tf.nn.max_pool3d(mask, [1, self.block_size, self.block_size, self.block_size, 1], [1, 1, 1, 1, 1], 'SAME')
-        mask = 1 - mask
-        return mask
+    def call(self, inputs, training=None):
+        def dropped_inputs():
+            outputs = inputs
+            if self.data_format == 'channels_first':
+                outputs = K.permute_dimensions(outputs, [0, 2, 3, 4, 1])
+
+            shape = K.shape(outputs)
+
+            if self.sync_channels:
+                mask = self._compute_drop_mask([shape[0], shape[1], shape[2], shape[3], 1])
+            else:
+                mask = self._compute_drop_mask(shape)
+
+            outputs = outputs * mask *\
+                (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
+
+            if self.data_format == 'channels_first':
+                outputs = K.permute_dimensions(outputs, [0, 4, 1, 2, 3])
+
+            return outputs
+
+        return K.in_train_phase(dropped_inputs, inputs, training=training)
