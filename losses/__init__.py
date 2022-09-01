@@ -1,1 +1,1 @@
-from losses.dice_loss import binary_dice_coef_loss, binary_tversky_coef
+from losses.dice_loss import binary_dice_coef_loss, binary_tversky_coef, binary_weighted_dice_crossentropy_loss, binary_tversky_loss

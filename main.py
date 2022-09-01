@@ -1,17 +1,10 @@
-import random
-
-import numpy as np
 import matplotlib.pyplot as plt
-
-import tensorflow as tf
-
+import numpy as np
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
-from tensorflow.keras.utils import plot_model
-
+from layers import ResidualStack, ResidualBlock, DropBlock2D
 from losses import binary_dice_coef_loss
-from layers import ResidualStack, ResidualBlock
 
 
 # the skip connections in the U-Net
@@ -28,12 +21,12 @@ def skip_connection_2d_to_3d(filters=64, activation="relu"):
 
 # a stack of blocks + pooling (returns the final block too)
 def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu",
-          drop_connect_rate=0.2, dropout_rate=0.2, dims=2, downsample=True):
+          drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, dims=2, downsample=True):
     def apply(x):
         conv = ResidualStack(filters, blocks, name=name, activation=activation,
                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         if downsample:
-            x = Dropout(dropout_rate, name=name + "_dropout")(conv)
+            x = DropBlock2D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock").call(conv)
             x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         else:
@@ -46,7 +39,7 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
 
 
 def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activation="relu",
-                 drop_connect_rate=0.2, dropout_rate=0.2, optimizer="adam",
+                 drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, optimizer="adam",
                  loss=binary_dice_coef_loss(), weights=None):
     output_2d = []
     output_3d = []
@@ -58,7 +51,8 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
     # Downward 2D part of U-Net
     for i in range(len(blocks)):
         x, conv = stack(filters, blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
-                        dropout_rate=dropout_rate, activation=activation)(x)
+                        dropout_rate=dropout_rate, block_size=block_size,
+                        activation=activation)(x)
         output_2d.append(conv)
         output_skip.append(skip_connection_2d_to_3d(filters, activation)(conv))
 
@@ -71,7 +65,8 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
             x = Conv3D(4 * filters, 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
 
         x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
-                        drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, activation=activation)(x)
+                        drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
+                        activation=activation)(x)
         output_3d.append(conv)
 
     outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
@@ -102,3 +97,7 @@ def data_generator(directory=""):
         voxels_lst.append(np.expand_dims(np.load(f"{directory}/voxels/run_{i}.npy"), axis=-1))
 
     return detections_lst, voxels_lst
+
+
+if __name__ == "__main__":
+    model = create_model()

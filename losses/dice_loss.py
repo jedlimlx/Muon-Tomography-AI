@@ -43,7 +43,7 @@ def binary_dice_coef_loss(smooth=1.):
     :return: Dice coefficient loss function (Callable[[tf.Tensor, tf.Tensor], tf.Tensor])
     """
 
-    def loss(y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+    def loss(y_true, y_pred):
         """
         Compute the Dice loss (Tversky loss with β=0.5).
         :param y_true: True masks (tf.Tensor, shape=(<BATCH_SIZE>, <IMAGE_HEIGHT>, <IMAGE_WIDTH>, 1))
