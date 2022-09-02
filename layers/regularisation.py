@@ -140,7 +140,7 @@ class DropBlock1D(Layer):
     def _compute_drop_mask(self, shape):
         mask = K.random_binomial(shape, p=self._get_gamma())
         mask *= self._compute_valid_seed_region()
-        mask = keras.layers.MaxPool1D(
+        mask = MaxPool1D(
             pool_size=self.block_size,
             padding='same',
             strides=1,
@@ -249,7 +249,7 @@ class DropBlock2D(Layer):
     def _compute_drop_mask(self, shape):
         mask = K.random_binomial(shape, p=self._get_gamma())
         mask *= self._compute_valid_seed_region()
-        mask = keras.layers.MaxPool2D(
+        mask = MaxPool2D(
             pool_size=(self.block_size, self.block_size),
             padding='same',
             strides=1,
@@ -366,7 +366,7 @@ class DropBlock3D(Layer):
     def _compute_drop_mask(self, shape):
         mask = K.random_binomial(shape, p=self._get_gamma())
         mask *= self._compute_valid_seed_region()
-        mask = keras.layers.MaxPool3D(
+        mask = MaxPool3D(
             pool_size=(self.block_size, self.block_size, self.block_size),
             padding='same',
             strides=1,
