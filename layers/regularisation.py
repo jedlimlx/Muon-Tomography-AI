@@ -332,11 +332,16 @@ class DropBlock3D(Layer):
                (height * width * depth / ((height - block_size + 1.0) * (width - block_size + 1.0) * (depth - block_size + 1.0)))
 
     def _compute_valid_seed_region(self):
-        positions = K.concatenate([
-            K.expand_dims(K.tile(K.expand_dims(K.arange(self.height), axis=1), [1, self.width, self.depth]), axis=-1),
-            K.expand_dims(K.tile(K.expand_dims(K.arange(self.width), axis=0), [self.height, 1, self.depth]), axis=-1),
-            K.expand_dims(K.tile(K.expand_dims(K.arange(self.depth), axis=2), [self.height, self.width, 1]), axis=-1),
-        ], axis=-1)
+        positions = []
+        for i in range(self.height):
+            positions.append([])
+            for j in range(self.width):
+                positions[-1].append([])
+                for k in range(self.depth):
+                    positions[-1][-1].append([i, j, k])
+
+        positions = tf.constant(positions)
+
         half_block_size = self.block_size // 2
         valid_seed_region = K.switch(
             K.all(
@@ -392,3 +397,25 @@ class DropBlock3D(Layer):
             return outputs
 
         return K.in_train_phase(dropped_inputs, inputs, training=training)
+
+
+if __name__ == "__main__":
+    height = 200
+    width = 100
+
+    positions = K.concatenate([
+        K.expand_dims(K.tile(K.expand_dims(K.arange(height), axis=1), [1, width]), axis=-1),
+        K.expand_dims(K.tile(K.expand_dims(K.arange(width), axis=0), [height, 1]), axis=-1),
+    ], axis=-1)
+    print(positions)
+
+    positions = []
+    for i in range(height):
+        positions.append([])
+        for j in range(width):
+            positions[-1].append([])
+            for k in range(200):
+                positions[-1][-1].append([i, j, k])
+
+    positions = tf.constant(positions)
+    print(positions)
