@@ -2,10 +2,11 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
 from layers.regularisation import StochasticDepth
+from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D
 
 
 def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=None,
-                  activation="relu", drop_connect_rate=0.2, dims=2):
+                  activation="relu", drop_connect_rate=0.2, dims=2, attention="se"):
     """A residual block.
     Args:
       x: input tensor.
@@ -18,12 +19,14 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
       activation: string, the activation function to use
       drop_connect_rate: string, the probability that the block will be skipped
       dims: integer, the number of dimensions of the convolution (2d or 3d)
+      attention: string, the type of attention to use
     Returns:
 
       Output tensor for the residual block.
     """
 
     conv_block = Conv2D if dims == 2 else Conv3D
+    se_block = SqueezeAndExcite2D if dims == 2 else SqueezeAndExcite3D
 
     def apply(x):
         if conv_shortcut:
@@ -43,6 +46,10 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
         x = conv_block(4 * filters, 1, use_bias=False, name=name + "_3_conv")(x)
         x = BatchNormalization(name=name + "_3_bn")(x)
 
+        if attention is not None:
+            if attention == "se":
+                x = se_block(4 * filters, name=name + "_squeeze_exite")(x)
+
         x = StochasticDepth(rate=drop_connect_rate, name=name + "_add")([shortcut, x])
         x = Activation(activation, name=name + "_out")(x)
         return x
@@ -50,7 +57,7 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
     return apply
 
 
-def ResidualStack(filters, blocks, name=None, kernel_size=3, activation="relu", drop_connect_rate=0.2, dims=2):
+def ResidualStack(filters, blocks, name=None, kernel_size=3, activation="relu", drop_connect_rate=0.2, dims=2, attention="se"):
     """A set of stacked residual blocks.
     Args:
       filters: integer, filters of the bottleneck layer in a block.
@@ -60,6 +67,7 @@ def ResidualStack(filters, blocks, name=None, kernel_size=3, activation="relu", 
       activation: string, the activation function to use
       drop_connect_rate: string, the probability that the block will be skipped
       dims: integer, the number of dimensions of the convolution (2d or 3d)
+      attention: string, the type of attention to use
     Returns:
       Output tensor for the stacked blocks.
     """
