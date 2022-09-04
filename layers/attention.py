@@ -61,7 +61,8 @@ class SqueezeAndExcite2D(Layer):
         self.squeeze_activation = squeeze_activation
         self.excite_activation = excite_activation
 
-        self.global_average_pool = GlobalAveragePooling2D(keepdims=True)
+        self.global_average_pool = GlobalAveragePooling2D()
+        self.reshape = Reshape((1, 1, filters))
         self.squeeze_conv = Conv2D(
             self.bottleneck_filters, (1, 1),
             activation=self.squeeze_activation,
@@ -71,7 +72,8 @@ class SqueezeAndExcite2D(Layer):
         )
 
     def call(self, inputs, training=True):
-        x = self.global_average_pool(inputs)  # x: (batch_size, 1, 1, filters)
+        x = self.global_average_pool(inputs)
+        x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
         x = self.excite_conv(x)  # x: (batch_size, 1, 1, filters)
         x = tf.math.multiply(x, inputs)  # x: (batch_size, h, w, filters)
@@ -146,7 +148,8 @@ class SqueezeAndExcite3D(Layer):
         self.squeeze_activation = squeeze_activation
         self.excite_activation = excite_activation
 
-        self.global_average_pool = GlobalAveragePooling3D(keepdims=True)
+        self.global_average_pool = GlobalAveragePooling3D()
+        self.reshape = Reshape((1, 1, 1, filters))
         self.squeeze_conv = Conv3D(
             self.bottleneck_filters, (1, 1, 1),
             activation=self.squeeze_activation,
@@ -156,7 +159,8 @@ class SqueezeAndExcite3D(Layer):
         )
 
     def call(self, inputs, training=True):
-        x = self.global_average_pool(inputs)  # x: (batch_size, 1, 1, filters)
+        x = self.global_average_pool(inputs)
+        x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
         x = self.excite_conv(x)  # x: (batch_size, 1, 1, filters)
         x = tf.math.multiply(x, inputs)  # x: (batch_size, h, w, filters)
