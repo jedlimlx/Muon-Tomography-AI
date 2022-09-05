@@ -21,16 +21,25 @@ def skip_connection_2d_to_3d(filters=64, activation="relu"):
 
 # a stack of blocks + pooling (returns the final block too)
 def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu",
-          drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, dims=2, downsample=True):
+          drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, dims=2, downsample=True,
+          use_dropblock_2d=True, use_dropblock_3d=False):
     def apply(x):
         conv = ResidualStack(filters, blocks, name=name, activation=activation,
                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         if downsample:
-            x = DropBlock2D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock2d").call(conv)
+            if use_dropblock_2d:
+                x = DropBlock2D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock2d")(conv)
+            else:
+                x = Dropout(dropout_rate, name=name + "_dropout")(x)
+
             x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
         else:
-            x = DropBlock3D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock3d")(conv)
+            if use_dropblock_3d:
+                x = DropBlock3D(keep_prob=1-dropout_rate, block_size=block_size, name=name + "_dropblock3d")(conv)
+            else:
+                x = Dropout(dropout_rate, name=name + "_dropout")(x)
+
             x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
 
         return x, conv
@@ -40,7 +49,7 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
 
 def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activation="relu",
                  drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, optimizer="adam",
-                 loss=binary_dice_coef_loss(), weights=None):
+                 loss=binary_dice_coef_loss(), dropblock_2d=True, dropblock_3d=False, weights=None):
     output_2d = []
     output_3d = []
     output_skip = []
@@ -52,7 +61,7 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
     for i in range(len(blocks)):
         x, conv = stack(filters, blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
                         dropout_rate=dropout_rate, block_size=block_size,
-                        activation=activation)(x)
+                        activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d)(x)
         output_2d.append(conv)
         output_skip.append(skip_connection_2d_to_3d(filters, activation)(conv))
 
@@ -66,7 +75,7 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
 
         x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
                         drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
-                        activation=activation)(x)
+                        activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d)(x)
         output_3d.append(conv)
 
     outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
