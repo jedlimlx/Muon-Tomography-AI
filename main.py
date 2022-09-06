@@ -8,11 +8,11 @@ from losses import binary_dice_coef_loss
 
 
 # the skip connections in the U-Net
-def skip_connection_2d_to_3d(filters=64, activation="relu"):
+def skip_connection_2d_to_3d(filters=64, activation="relu", name=None):
     def apply(x):
-        x = Conv2D(x.shape[2], 3, activation=activation, padding="same")(x)
-        x = Reshape((x.shape[1], x.shape[2], x.shape[2], 1))(x)
-        x = Conv3D(4 * filters, 3, activation=activation, padding="same")(x)
+        x = Conv2D(x.shape[2], 3, activation=activation, padding="same", name=name + "_conv2d")(x)
+        x = Reshape((x.shape[1], x.shape[2], x.shape[2], 1), name=name + "_reshape")(x)
+        x = Conv3D(4 * filters, 3, activation=activation, padding="same", name=name + "_conv3d")(x)
 
         return x
 
@@ -49,13 +49,15 @@ def stack(filters, blocks, kernel_size=3, stride=2, name=None, activation="relu"
 
 def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activation="relu",
                  drop_connect_rate=0.2, dropout_rate=0.2, block_size=10, optimizer="adam",
-                 loss=binary_dice_coef_loss(), dropblock_2d=True, dropblock_3d=False, weights=None):
+                 loss=binary_dice_coef_loss(), noise=0.5,
+                 dropblock_2d=True, dropblock_3d=False, weights=None):
     output_2d = []
     output_3d = []
     output_skip = []
 
     inputs = Input(shape=shape)
-    x = Conv2D(4 * filters, 3, padding="same", activation=activation)(inputs)
+    x = GaussianNoise(noise)(inputs)
+    x = Conv2D(4 * filters, 3, padding="same", activation=activation)(x)
 
     # Downward 2D part of U-Net
     for i in range(len(blocks)):
@@ -63,7 +65,7 @@ def create_model(shape=(64, 64, 6), blocks=(2, 2, 2, 2, 2), filters=64, activati
                         dropout_rate=dropout_rate, block_size=block_size,
                         activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d)(x)
         output_2d.append(conv)
-        output_skip.append(skip_connection_2d_to_3d(filters, activation)(conv))
+        output_skip.append(skip_connection_2d_to_3d(filters, activation, name=f"skip_connection_{i}")(conv))
 
     # Upward 3D part of U-Net
     for i in range(len(blocks) - 1, -1, -1):
