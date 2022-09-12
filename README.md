@@ -27,5 +27,12 @@ Experiments conducted are logged below.
 
 100 Epochs, Early Stopping (Patience 10)
 
+| Activation Function | Loss Function | Blocks          | Dropout Rate | Drop-connect Rate | Regularisation      | Attention | Gaussian Noise | Learning Rate | Accuracy |
+|---------------------|---------------|-----------------|--------------|-------------------|---------------------|-----------|----------------|---------------|----------|
+| Swish               | BCE           | [1, 2, 2, 2, 3] | 0.10         | 0.20              | SD + Dropblock (2D) | None      | 0.20           | 0.001         | 93.8%    |
+| Swish               | BCE           | [1, 2, 2, 2, 3] | 0.05         | 0.20              | SD + Dropblock (2D) | None      | 0.20           | 0.001         | 94.9%    |
+| Swish               | BCE           | [1, 2, 2, 2, 3] | 0.05         | 0.20              | SD + Dropblock (2D) | None      | 0.50           | 0.001         | 94.2%    |
+| Swish               | BCE           | [1, 2, 2, 2, 3] | 0.05         | 0.20              | SD + Dropblock (2D) | None      | 0.10           | 0.001         | 94.3%    |
+| Swish               | BCE           | [1, 2, 2, 2, 3] | 0.05         | 0.20              | SD + Dropblock (2D) | None      | 0.20           | 0.002         | 94.9%    |
 
 DL - Dice Loss, BCE - Binary Crossentropy, SD - Stochastic Depth
