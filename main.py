@@ -130,8 +130,7 @@ def create_model(
                         dropout_rate=dropout_rate, block_size=block_size, activation=activation,
                         use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type)(x)
         output_2d.append(conv)
-        output_skip.append(skip_connection_2d_to_3d(filters, activation, name=f"skip_connection_{i}",
-                                                    block_type=block_type)(conv))
+        output_skip.append(skip_connection_2d_to_3d(filters, activation, name=f"skip_connection_{i}")(conv))
 
     # Upward 3D part of U-Net
     for i in range(len(blocks) - 1, -1, -1):
