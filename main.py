@@ -116,11 +116,11 @@ def create_model(
     x = GaussianNoise(noise)(inputs)
 
     if block_type == "resnet":
-        x = Conv2D(filters, 7, strides=2, use_bias=True, padding="same", name="stem")(x)
+        x = Conv2D(filters, 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = BatchNormalization(name="stem_batch_norm")(x)
         x = Activation(activation, name="stem_activation")(x)
     elif block_type == "convnext":
-        x = Conv2D(filters, 7, strides=2, use_bias=True, padding="same", name="stem")(x)
+        x = Conv2D(filters, 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = LayerNormalization(name="stem_layer_norm")(x)
         x = Activation(activation, name="stem_activation")(x)
 
