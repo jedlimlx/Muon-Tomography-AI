@@ -32,6 +32,7 @@ def stack(
         block_size=10,
         dims=2,
         downsample=True,
+        downsample_filter=64,
         use_dropblock_2d=True,
         use_dropblock_3d=False,
         block_type="resnet"
@@ -61,7 +62,7 @@ def stack(
             if block_type == "resnet":
                 x = ResidualBlock(filters, stride=stride, name=name + "_pooling_block", activation=activation,
                                   drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
-            else:
+            elif block_type == "convnext":
                 downsample_layer = Sequential(
                     [
                         LayerNormalization(
@@ -69,7 +70,7 @@ def stack(
                             name=name + "_downsampling_layernorm",
                         ),
                         Conv2D(
-                            filters,
+                            downsample_filter,
                             kernel_size=2,
                             strides=2,
                             name=name + "_downsampling_conv",
@@ -95,7 +96,7 @@ def stack(
 def create_model(
         shape=(64, 64, 6),
         blocks=(2, 2, 2, 2, 2),
-        filters=64,
+        filters=(32, 64, 128, 256, 512),
         activation="relu",
         drop_connect_rate=0.2,
         dropout_rate=0.2,
@@ -103,7 +104,7 @@ def create_model(
         noise=0.5,
         dropblock_2d=True,
         dropblock_3d=False,
-        block_type="resnet",
+        block_type="convnext",
         optimizer="adam",
         loss=binary_dice_coef_loss(),
         weights=None
@@ -116,21 +117,22 @@ def create_model(
     x = GaussianNoise(noise)(inputs)
 
     if block_type == "resnet":
-        x = Conv2D(filters, 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+        x = Conv2D(filters[0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = BatchNormalization(name="stem_batch_norm")(x)
         x = Activation(activation, name="stem_activation")(x)
     elif block_type == "convnext":
-        x = Conv2D(filters, 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+        x = Conv2D(filters[0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = LayerNormalization(name="stem_layer_norm")(x)
         x = Activation(activation, name="stem_activation")(x)
 
     # Downward 2D part of U-Net
     for i in range(len(blocks)):
-        x, conv = stack(filters, blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
+        x, conv = stack(filters[i], blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
                         dropout_rate=dropout_rate, block_size=block_size, activation=activation,
-                        use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type)(x)
+                        use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type,
+                        downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
         output_2d.append(conv)
-        output_skip.append(skip_connection_2d_to_3d(filters, activation, name=f"skip_connection_{i}")(conv))
+        output_skip.append(skip_connection_2d_to_3d(filters[i], activation, name=f"skip_connection_{i}")(conv))
 
     # Upward 3D part of U-Net
     for i in range(len(blocks) - 1, -1, -1):
@@ -138,12 +140,12 @@ def create_model(
             x = output_skip[i]
         else:
             x = Concatenate()([output_skip[i], x])
-            x = Conv3D(filters, 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
+            x = Conv3D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
 
-        x, conv = stack(filters, blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
+        x, conv = stack(filters[i], blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
                         drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
                         activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d,
-                        block_type=block_type)(x)
+                        block_type=block_type, downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
         output_3d.append(conv)
 
     outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])

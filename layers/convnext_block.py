@@ -85,7 +85,6 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
         x = Dense(4 * projection_dim, name=name + "_pointwise_conv_1")(x)
         x = Activation(activation, name=name + "_" + activation)(x)
         x = Dense(projection_dim, name=name + "_pointwise_conv_2")(x)
-        print(x.shape, inputs.shape)
 
         if layer_scale_init_value is not None:
             x = LayerScale(
