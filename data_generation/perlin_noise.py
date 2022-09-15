@@ -5,6 +5,7 @@ import SimpleITK as itk
 Reference: https://pvigier.github.io/2018/11/02/3d-perlin-noise-numpy.html
 """
 
+
 def generate_perlin_noise_3d(shape, res):
     """
     Generates 3D perlin noise image
@@ -53,7 +54,7 @@ def generate_perlin_noise_3d(shape, res):
     n11 = n011 * (1 - t[:, :, :, 0]) + t[:, :, :, 0] * n111
     n0 = (1 - t[:, :, :, 1]) * n00 + t[:, :, :, 1] * n10
     n1 = (1 - t[:, :, :, 1]) * n01 + t[:, :, :, 1] * n11
-    return (1 - t[:, :, :, 2]) * n0 + t[:, :, :, 2] * n1
+    return (1 - t[:, :, :, 2]) * n0 + t[:, :, :, 2] * n1 + 0.5
 
 
 def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
@@ -71,12 +72,14 @@ def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
     noise = np.zeros(shape)
     frequency = 1
     amplitude = 1
+    scaling = 0
     for _ in range(octaves):
+        scaling += amplitude
         noise += amplitude * generate_perlin_noise_3d(shape,
                                                       (frequency * res[0], frequency * res[1], frequency * res[2]))
         frequency *= 2
         amplitude *= persistence
-    return noise
+    return noise * 0.05 / scaling
 
 
 def export_to_mhd(filename: str, a: np.ndarray) -> None:
