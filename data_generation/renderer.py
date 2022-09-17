@@ -7,10 +7,6 @@ class Renderer:
     """
     Renders 2D slices
     """
-    # constants
-    MU_WATER = 20
-    MU_AIR = 0.02
-    MU_MAX = 3071 * (MU_WATER - MU_AIR) / 1000 + MU_WATER
 
     def __init__(self, res=256, size: float = 0.13, num_angles: int = None, num_det: int = None, impl="astra_cpu",
                  seed=None, n_photons=4096):
@@ -29,6 +25,9 @@ class Renderer:
         self.ray_tracer = odl.tomo.RayTransform(space, geometry, impl=impl)
         self.rng = np.random.default_rng(seed)
         self.n_photons = n_photons
+        self.impl = impl
+        self.size = size
+        self.res = res
 
     def render(self, img):
         """
@@ -40,14 +39,15 @@ class Renderer:
 
         """
         out = self.ray_tracer(img).asarray().astype(np.float64)
-        print(np.mean(out), np.std(out))
 
         out = self.rng.poisson(np.exp(-1 * out) * self.n_photons) / self.n_photons
-        out = np.log(np.clip(out, a_min=0.1 / self.n_photons, a_max=None)) / (-self.MU_MAX)
+        out = np.log(np.clip(out, a_min=0.1 / self.n_photons, a_max=None))
         return out
 
     def render_q(self, in_q: Queue, out_q: Queue):
         while type(img := in_q.get()) is not str:
             # print(np.mean(img * self.MU_MAX), np.std(img * self.MU_MAX))
-            out_q.put(self.render(img * self.MU_MAX))
+            # if self.impl == "astra_cuda":
+            #     img = img * self.size * 2 / self.res
+            out_q.put(self.render(img))
         out_q.put("stop")
