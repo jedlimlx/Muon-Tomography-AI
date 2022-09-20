@@ -93,7 +93,7 @@ def stack(
                 x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
             else:
                 if use_dropblock_2d:
-                    x = DropBlock3D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock3d")(x)
+                    x = DropBlock2D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock2d")(x)
                 else:
                     x = Dropout(dropout_rate, name=name + "_dropout")(x)
 
