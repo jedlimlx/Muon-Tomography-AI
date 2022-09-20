@@ -8,11 +8,14 @@ from losses import binary_dice_coef_loss
 
 
 # the skip connections in the U-Net
-def skip_connection_2d_to_3d(filters=64, activation="relu", name=None):
+def skip_connection_2d_to_3d(filters=64, activation="relu", dims=3, name=None):
     def apply(x):
-        x = Conv2D(x.shape[2], 3, activation=activation, padding="same", name=name + "_conv2d")(x)
-        x = Reshape((x.shape[1], x.shape[2], x.shape[2], 1), name=name + "_reshape")(x)
-        x = Conv3D(filters, 3, activation=activation, padding="same", name=name + "_conv3d")(x)
+        if dims == 3:
+            x = Conv2D(x.shape[2], 3, activation=activation, padding="same", name=name + "_conv2d")(x)
+            x = Reshape((x.shape[1], x.shape[2], x.shape[2], 1), name=name + "_reshape")(x)
+            x = Conv3D(filters, 3, activation=activation, padding="same", name=name + "_conv3d")(x)
+        else:
+            x = Conv2D(filters, 3, activation=activation, padding="same", name=name + "_conv2d")(x)
 
         return x
 
@@ -81,12 +84,20 @@ def stack(
 
                 x = downsample_layer(x)
         else:
-            if use_dropblock_3d:
-                x = DropBlock3D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock3d")(x)
-            else:
-                x = Dropout(dropout_rate, name=name + "_dropout")(x)
+            if dims == 3:
+                if use_dropblock_3d:
+                    x = DropBlock3D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock3d")(x)
+                else:
+                    x = Dropout(dropout_rate, name=name + "_dropout")(x)
 
-            x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
+                x = UpSampling3D(size=(2, 2, 2), name=name + "_upsample")(x)
+            else:
+                if use_dropblock_2d:
+                    x = DropBlock3D(keep_prob=1 - dropout_rate, block_size=block_size, name=name + "_dropblock3d")(x)
+                else:
+                    x = Dropout(dropout_rate, name=name + "_dropout")(x)
+
+                x = UpSampling2D(size=(2, 2), name=name + "_upsample")(x)
 
         return x, conv
 
@@ -104,8 +115,9 @@ def create_model(
         noise=0.5,
         dropblock_2d=True,
         dropblock_3d=False,
-        block_type="convnext",
+        block_type="resnet",
         optimizer="adam",
+        dimensions=2,
         loss=binary_dice_coef_loss(),
         weights=None
 ):
@@ -132,23 +144,31 @@ def create_model(
                         use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type,
                         downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
         output_2d.append(conv)
-        output_skip.append(skip_connection_2d_to_3d(filters[i], activation, name=f"skip_connection_{i}")(conv))
+        output_skip.append(skip_connection_2d_to_3d(filters[i], activation, name=f"skip_connection_{i}",
+                                                    dims=dimensions)(conv))
 
-    # Upward 3D part of U-Net
+    # Upward 2D / 3D part of U-Net
     for i in range(len(blocks) - 1, -1, -1):
         if i == len(blocks) - 1:
             x = output_skip[i]
         else:
             x = Concatenate()([output_skip[i], x])
-            x = Conv3D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
 
-        x, conv = stack(filters[i], blocks[i], dims=3, name=f"stack_3d_{i}", downsample=False,
+            if dimensions == 3:
+                x = Conv3D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
+            else:
+                x = Conv2D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
+
+        x, conv = stack(filters[i], blocks[i], dims=dimensions, name=f"stack_3d_{i}", downsample=False,
                         drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
                         activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d,
                         block_type=block_type, downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
         output_3d.append(conv)
 
-    outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
+    if dimensions == 3:
+        outputs = Conv3D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
+    else:
+        outputs = Conv2D(1, 3, activation="sigmoid", padding="same", name="output")(output_3d[-1])
 
     model = Model(inputs=inputs, outputs=outputs)
     model.compile(optimizer=optimizer, loss=loss)
