@@ -9,7 +9,6 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
                   activation="relu", drop_connect_rate=0.2, dims=2, attention="se"):
     """A residual block.
     Args:
-      x: input tensor.
       filters: integer, filters of the bottleneck layer.
       kernel_size: default 3, kernel size of the bottleneck layer.
       stride: default 1, stride of the first layer.
@@ -57,25 +56,23 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
     return apply
 
 
-def ResidualStack(filters, blocks, name=None, kernel_size=3, activation="relu", drop_connect_rate=0.2, dims=2, attention="se"):
+def ResidualStack(filters, blocks, name=None, **kwargs):
     """A set of stacked residual blocks.
     Args:
       filters: integer, filters of the bottleneck layer in a block.
       blocks: integer, blocks in the stacked blocks.
-      stride: default 2, stride of the first layer in the first block.
       name: string, stack label.
-      activation: string, the activation function to use
-      drop_connect_rate: string, the probability that the block will be skipped
-      dims: integer, the number of dimensions of the convolution (2d or 3d)
-      attention: string, the type of attention to use
+      kwargs: kwargs to pass into ResidualBlock
     Returns:
       Output tensor for the stacked blocks.
     """
 
+    kwargs.pop("name", None)
+    kwargs.pop("conv_shortcut", None)
+
     def apply(x):
         for i in range(1, blocks + 1):
-            x = ResidualBlock(filters, conv_shortcut=False, name=name + "_block" + str(i), activation=activation,
-                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
+            x = ResidualBlock(filters, conv_shortcut=False, name=name + "_block" + str(i), **kwargs)(x)
 
         return x
 

@@ -71,7 +71,7 @@ class SqueezeAndExcite2D(Layer):
             self.filters, (1, 1), activation=self.excite_activation
         )
 
-    def call(self, inputs, training=True):
+    def call(self, inputs, training=True, **kwargs):
         x = self.global_average_pool(inputs)
         x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
@@ -87,7 +87,7 @@ class SqueezeAndExcite2D(Layer):
             "excite_activation": self.excite_activation,
         }
         base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
 
 class SqueezeAndExcite3D(Layer):
@@ -158,7 +158,7 @@ class SqueezeAndExcite3D(Layer):
             self.filters, (1, 1, 1), activation=self.excite_activation
         )
 
-    def call(self, inputs, training=True):
+    def call(self, inputs, training=True, **kwargs):
         x = self.global_average_pool(inputs)
         x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
@@ -174,4 +174,4 @@ class SqueezeAndExcite3D(Layer):
             "excite_activation": self.excite_activation,
         }
         base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)

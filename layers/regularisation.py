@@ -3,8 +3,6 @@ import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import *
 
-from utils import normalize_tuple
-
 
 class StochasticDepth(Layer):
     """
@@ -43,7 +41,7 @@ class StochasticDepth(Layer):
         self.rate = rate
         self.survival_probability = 1.0 - self.rate
 
-    def call(self, x, training=None):
+    def call(self, x, training=None, **kwargs):
         if len(x) != 2:
             raise ValueError(
                 f"""Input must be a list of length 2. """
@@ -62,7 +60,7 @@ class StochasticDepth(Layer):
     def get_config(self):
         config = {"rate": self.rate}
         base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
 
 class DropBlock1D(Layer):
@@ -104,7 +102,7 @@ class DropBlock1D(Layer):
                   'sync_channels': self.sync_channels,
                   'data_format': self.data_format}
         base_config = super(DropBlock1D, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
     def compute_mask(self, inputs, mask=None):
         return mask
@@ -148,7 +146,7 @@ class DropBlock1D(Layer):
         )(mask)
         return 1.0 - mask
 
-    def call(self, inputs, training=None):
+    def call(self, inputs, training=None, **kwargs):
 
         def dropped_inputs():
             outputs = inputs
@@ -159,8 +157,8 @@ class DropBlock1D(Layer):
                 mask = self._compute_drop_mask([shape[0], shape[1], 1])
             else:
                 mask = self._compute_drop_mask(shape)
-            outputs = outputs * mask *\
-                (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
+            outputs = outputs * mask * \
+                      (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
             if self.data_format == 'channels_first':
                 outputs = K.permute_dimensions(outputs, [0, 2, 1])
             return outputs
@@ -207,7 +205,7 @@ class DropBlock2D(Layer):
                   'sync_channels': self.sync_channels,
                   'data_format': self.data_format}
         base_config = super(DropBlock2D, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
     def compute_mask(self, inputs, mask=None):
         return mask
@@ -219,7 +217,7 @@ class DropBlock2D(Layer):
         """Get the number of activation units to drop"""
         height, width = K.cast(self.height, K.floatx()), K.cast(self.width, K.floatx())
         block_size = K.constant(self.block_size, dtype=K.floatx())
-        return ((1.0 - self.keep_prob) / (block_size ** 2)) *\
+        return ((1.0 - self.keep_prob) / (block_size ** 2)) * \
                (height * width / ((height - block_size + 1.0) * (width - block_size + 1.0)))
 
     def _compute_valid_seed_region(self):
@@ -257,7 +255,7 @@ class DropBlock2D(Layer):
         )(mask)
         return 1.0 - mask
 
-    def call(self, inputs, training=None):
+    def call(self, inputs, training=None, **kwargs):
         def dropped_inputs():
             outputs = inputs
             if self.data_format == 'channels_first':
@@ -267,8 +265,8 @@ class DropBlock2D(Layer):
                 mask = self._compute_drop_mask([shape[0], shape[1], shape[2], 1])
             else:
                 mask = self._compute_drop_mask(shape)
-            outputs = outputs * mask *\
-                (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
+            outputs = outputs * mask * \
+                      (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
             if self.data_format == 'channels_first':
                 outputs = K.permute_dimensions(outputs, [0, 3, 1, 2])
             return outputs
@@ -298,7 +296,7 @@ class DropBlock3D(Layer):
         self.sync_channels = sync_channels
         self.data_format = data_format
         self.supports_masking = True
-        self.height = self.width = self.depth =  self.ones = self.zeros = None
+        self.height = self.width = self.depth = self.ones = self.zeros = None
 
     def build(self, input_shape):
         if self.data_format == 'channels_first':
@@ -316,7 +314,7 @@ class DropBlock3D(Layer):
                   'sync_channels': self.sync_channels,
                   'data_format': self.data_format}
         base_config = super(DropBlock3D, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+        return base_config.update(config)
 
     def compute_mask(self, inputs, mask=None):
         return mask
@@ -326,10 +324,12 @@ class DropBlock3D(Layer):
 
     def _get_gamma(self):
         """Get the number of activation units to drop"""
-        height, width, depth = K.cast(self.height, K.floatx()), K.cast(self.width, K.floatx()), K.cast(self.depth, K.floatx())
+        height, width, depth = K.cast(self.height, K.floatx()), \
+                               K.cast(self.width, K.floatx()), K.cast(self.depth, K.floatx())
         block_size = K.constant(self.block_size, dtype=K.floatx())
-        return ((1.0 - self.keep_prob) / (block_size ** 2)) *\
-               (height * width * depth / ((height - block_size + 1.0) * (width - block_size + 1.0) * (depth - block_size + 1.0)))
+        return ((1.0 - self.keep_prob) / (block_size ** 2)) * \
+               (height * width * depth / ((height - block_size + 1.0) * (width - block_size + 1.0) *
+                                          (depth - block_size + 1.0)))
 
     def _compute_valid_seed_region(self):
         positions = []
@@ -375,7 +375,7 @@ class DropBlock3D(Layer):
 
         return 1.0 - mask
 
-    def call(self, inputs, training=None):
+    def call(self, inputs, training=None, **kwargs):
         def dropped_inputs():
             outputs = inputs
             if self.data_format == 'channels_first':
@@ -388,8 +388,8 @@ class DropBlock3D(Layer):
             else:
                 mask = self._compute_drop_mask(shape)
 
-            outputs = outputs * mask *\
-                (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
+            outputs = outputs * mask * \
+                      (K.cast(K.prod(shape), dtype=K.floatx()) / K.sum(mask))
 
             if self.data_format == 'channels_first':
                 outputs = K.permute_dimensions(outputs, [0, 4, 1, 2, 3])
@@ -399,7 +399,7 @@ class DropBlock3D(Layer):
         return K.in_train_phase(dropped_inputs, inputs, training=training)
 
 
-if __name__ == "__main__":
+def test():
     height = 200
     width = 100
 
@@ -419,3 +419,7 @@ if __name__ == "__main__":
 
     positions = tf.constant(positions)
     print(positions)
+
+
+if __name__ == "__main__":
+    test()
