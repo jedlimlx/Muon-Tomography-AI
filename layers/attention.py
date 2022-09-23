@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 from tensorflow.keras.layers import *
+from tensorflow.keras.models import Sequential
 
 
 class SqueezeAndExcite2D(Layer):
@@ -71,7 +72,7 @@ class SqueezeAndExcite2D(Layer):
             self.filters, (1, 1), activation=self.excite_activation
         )
 
-    def call(self, inputs, training=True, **kwargs):
+    def call(self, inputs, training=True):
         x = self.global_average_pool(inputs)
         x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
@@ -87,7 +88,7 @@ class SqueezeAndExcite2D(Layer):
             "excite_activation": self.excite_activation,
         }
         base_config = super().get_config()
-        return base_config.update(config)
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 class SqueezeAndExcite3D(Layer):
@@ -158,7 +159,7 @@ class SqueezeAndExcite3D(Layer):
             self.filters, (1, 1, 1), activation=self.excite_activation
         )
 
-    def call(self, inputs, training=True, **kwargs):
+    def call(self, inputs, training=True):
         x = self.global_average_pool(inputs)
         x = self.reshape(x)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
@@ -174,4 +175,58 @@ class SqueezeAndExcite3D(Layer):
             "excite_activation": self.excite_activation,
         }
         base_config = super().get_config()
-        return base_config.update(config)
+        return dict(list(base_config.items()) + list(config.items()))
+
+
+class ChannelwiseMaxPooling2D(Layer):
+    def __init__(self, **kwargs):
+        super(ChannelwiseMaxPooling2D, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        return tf.expand_dims(tf.math.reduce_max(inputs, axis=-1), axis=-1)
+
+
+class ChannelwiseAveragePooling2D(Layer):
+    def __init__(self, **kwargs):
+        super(ChannelwiseAveragePooling2D, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        return tf.expand_dims(tf.math.reduce_mean(inputs, axis=-1), axis=-1)
+
+
+class SpatialAttentionModule(Layer):
+    def __init__(self, **kwargs):
+        super(SpatialAttentionModule, self).__init__(**kwargs)
+
+        self.global_max = GlobalMaxPooling2D()
+        self.global_average = GlobalAveragePooling2D()
+
+        self.sigmoid = Activation("sigmoid")
+
+        self.channel_max = ChannelwiseMaxPooling2D()
+        self.channel_average = ChannelwiseAveragePooling2D()
+
+    def build(self, input_shape):
+        self.mlp = Sequential([
+            Dense(256, activation="swish"),
+            Dense(input_shape[-1])
+        ])
+
+        self.conv2d = Conv2D(input_shape[-1], 9, activation="sigmoid", padding="same")
+
+    def call(self, input_tensor):
+        # Channel Attention
+        x1 = self.global_max(input_tensor)
+        x2 = self.global_average(input_tensor)
+
+        x = add([self.mlp(x1), self.mlp(x2)])
+        x = self.sigmoid(x)
+        x = multiply([x, input_tensor])
+
+        # Spatial Attention
+        x1 = self.channel_max(x)
+        x2 = self.channel_average(x)
+
+        x = concatenate([x1, x2])
+        x = self.conv2d(x)
+        return multiply([x, input_tensor])

@@ -2,7 +2,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
 from layers.regularisation import StochasticDepth
-from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D
+from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule
 
 
 def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=None,
@@ -26,6 +26,7 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
 
     conv_block = Conv2D if dims == 2 else Conv3D
     se_block = SqueezeAndExcite2D if dims == 2 else SqueezeAndExcite3D
+    cbam_block = SpatialAttentionModule
 
     def apply(x):
         if conv_shortcut:
@@ -48,6 +49,8 @@ def ResidualBlock(filters, kernel_size=3, stride=1, conv_shortcut=True, name=Non
         if attention is not None:
             if attention == "se":
                 x = se_block(4 * filters, name=name + "_squeeze_exite")(x)
+            elif attention == "cbam":
+                x = cbam_block()(x)
 
         x = StochasticDepth(rate=drop_connect_rate, name=name + "_add")([shortcut, x])
         x = Activation(activation, name=name + "_out")(x)

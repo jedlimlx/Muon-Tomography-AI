@@ -38,15 +38,18 @@ def stack(
         downsample_filter=64,
         use_dropblock_2d=True,
         use_dropblock_3d=False,
-        block_type="resnet"
+        block_type="resnet",
+        attention="se"
 ):
     def apply(x):
         if block_type == "resnet":
             x = ResidualBlock(filters, name=name + "_block1", activation=activation,
-                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
+                              drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
+                              attention=attention)(x)
             for i in range(2, blocks + 1):
                 x = ResidualBlock(filters, conv_shortcut=False, name=name + "_block" + str(i), activation=activation,
-                                  drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims)(x)
+                                  drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
+                                  attention=attention)(x)
         elif block_type == "convnext":
             x = ConvNeXtBlock(filters, name=name + "_block1", activation=activation,
                               drop_connect_rate=drop_connect_rate, dims=dims)(x)
@@ -116,6 +119,7 @@ def create_model(
         dropblock_2d=True,
         dropblock_3d=False,
         block_type="resnet",
+        attention="cbam",
         optimizer="adam",
         dimensions=2,
         loss=binary_dice_coef_loss(),
@@ -142,7 +146,7 @@ def create_model(
         x, conv = stack(filters[i], blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
                         dropout_rate=dropout_rate, block_size=block_size, activation=activation,
                         use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type,
-                        downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
+                        downsample_filter=filters[min(i + 1, len(filters) - 1)], attention=attention)(x)
         output_2d.append(conv)
         output_skip.append(skip_connection_2d_to_3d(filters[i], activation, name=f"skip_connection_{i}",
                                                     dims=dimensions)(conv))
@@ -162,7 +166,7 @@ def create_model(
         x, conv = stack(filters[i], blocks[i], dims=dimensions, name=f"stack_3d_{i}", downsample=False,
                         drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
                         activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d,
-                        block_type=block_type, downsample_filter=filters[min(i + 1, len(filters) - 1)])(x)
+                        block_type=block_type, downsample_filter=filters[min(i + 1, len(filters) - 1)], attention=attention)(x)
         output_3d.append(conv)
 
     if dimensions == 3:
