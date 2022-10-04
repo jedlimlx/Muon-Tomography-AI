@@ -1,9 +1,12 @@
 import matplotlib.pyplot as plt
 import numpy as np
+
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
+from tensorflow.keras.utils import plot_model
 
 from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D
+from layers import ViTBlock, Patches, PatchEncoder, PatchDecoder
 from losses import binary_dice_coef_loss
 
 
@@ -113,93 +116,121 @@ def create_model(
         loss=binary_dice_coef_loss(),
         weights=None
 ):
-    # if params == "3d":
-    output_2d = []
-    output_3d = []
-    output_skip = []
+    if params["task"] == "sparse":
+        output_2d = []
+        output_3d = []
+        output_skip = []
 
-    inputs = Input(shape=params["shape"])
-    x = GaussianNoise(params["noise"])(inputs)
+        inputs = Input(shape=params["shape"])
+        x = GaussianNoise(params["noise"])(inputs)
 
-    if params["block_type"] == "resnet":
-        x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
-        x = BatchNormalization(name="stem_batch_norm")(x)
-        x = Activation(params["activation"], name="stem_activation")(x)
-    elif params["block_type"] == "convnext":
-        x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
-        x = LayerNormalization(name="stem_layer_norm")(x)
-        x = Activation(params["activation"], name="stem_activation")(x)
+        if params["block_type"] == "resnet":
+            x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+            x = BatchNormalization(name="stem_batch_norm")(x)
+            x = Activation(params["activation"], name="stem_activation")(x)
+        elif params["block_type"] == "convnext":
+            x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+            x = LayerNormalization(name="stem_layer_norm")(x)
+            x = Activation(params["activation"], name="stem_activation")(x)
 
-    # Downward 2D part of U-Net
-    for i in range(len(params["blocks"])):
-        x, conv = stack(
-            params["filters"][i],
-            params["blocks"][i],
-            name=f"stack_2d_{i}",
-            drop_connect_rate=params["drop_connect_rate"],
-            dropout_rate=params["dropout_rate"],
-            block_size=params["block_size"],
-            activation=params["activation"],
-            use_dropblock_2d=params["dropblock_2d"],
-            use_dropblock_3d=params["dropblock_3d"],
-            block_type=params["block_type"],
-            downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
-            attention=params["attention"]
-        )(x)
-        output_2d.append(conv)
-        output_skip.append(
-            skip_connection_2d_to_3d(
+        # Downward 2D part of U-Net
+        for i in range(len(params["blocks"])):
+            x, conv = stack(
                 params["filters"][i],
-                params["activation"],
-                name=f"skip_connection_{i}",
-                dims=params["dimensions"]
-            )(conv)
-        )
+                params["blocks"][i],
+                name=f"stack_2d_{i}",
+                drop_connect_rate=params["drop_connect_rate"],
+                dropout_rate=params["dropout_rate"],
+                block_size=params["block_size"],
+                activation=params["activation"],
+                use_dropblock_2d=params["dropblock_2d"],
+                use_dropblock_3d=params["dropblock_3d"],
+                block_type=params["block_type"],
+                downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+                attention=params["attention"]
+            )(x)
+            output_2d.append(conv)
+            output_skip.append(
+                skip_connection_2d_to_3d(
+                    params["filters"][i],
+                    params["activation"],
+                    name=f"skip_connection_{i}",
+                    dims=params["dimensions"]
+                )(conv)
+            )
 
-    # Upward 2D / 3D part of U-Net
-    for i in range(len(params["blocks"]) - 1, -1, -1):
-        if i == len(params["blocks"]) - 1:
-            x = output_skip[i]
-        else:
-            x = Concatenate()([output_skip[i], x])
-
-            if params["dimensions"] == 3:
-                x = Conv3D(
-                    params["filters"][i], 3,
-                    activation=params["activation"],
-                    name=f"stack_3d_{i}_reshape",
-                    padding="same"
-                )(x)
+        # Upward 2D / 3D part of U-Net
+        for i in range(len(params["blocks"]) - 1, -1, -1):
+            if i == len(params["blocks"]) - 1:
+                x = output_skip[i]
             else:
-                x = Conv2D(
-                    params["filters"][i], 3,
-                    activation=params["activation"],
-                    name=f"stack_3d_{i}_reshape",
-                    padding="same"
-                )(x)
+                x = Concatenate()([output_skip[i], x])
 
-        x, conv = stack(
-            params["filters"][i],
-            params["blocks"][i],
-            dims=params["dimensions"],
-            name=f"stack_3d_{i}",
-            downsample=False,
-            drop_connect_rate=params["drop_connect_rate"],
-            dropout_rate=params["dropout_rate"],
-            block_size=params["block_size"],
-            activation=params["activation"],
-            use_dropblock_2d=params["dropblock_2d"],
-            use_dropblock_3d=params["dropblock_3d"],
-            block_type=params["block_type"],
-            downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
-            attention=params["attention"]
+                if params["dimensions"] == 3:
+                    x = Conv3D(
+                        params["filters"][i], 3,
+                        activation=params["activation"],
+                        name=f"stack_3d_{i}_reshape",
+                        padding="same"
+                    )(x)
+                else:
+                    x = Conv2D(
+                        params["filters"][i], 3,
+                        activation=params["activation"],
+                        name=f"stack_3d_{i}_reshape",
+                        padding="same"
+                    )(x)
+
+            x, conv = stack(
+                params["filters"][i],
+                params["blocks"][i],
+                dims=params["dimensions"],
+                name=f"stack_3d_{i}",
+                downsample=False,
+                drop_connect_rate=params["drop_connect_rate"],
+                dropout_rate=params["dropout_rate"],
+                block_size=params["block_size"],
+                activation=params["activation"],
+                use_dropblock_2d=params["dropblock_2d"],
+                use_dropblock_3d=params["dropblock_3d"],
+                block_type=params["block_type"],
+                downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+                attention=params["attention"]
+            )(x)
+            output_3d.append(conv)
+
+        if params["dimensions"] == 3:
+            outputs = Conv3D(1, 3, padding="same", name="output")(output_3d[-1])
+        else:
+            outputs = Conv2D(1, 3, padding="same", name="output")(output_3d[-1])
+    elif params["task"] == "ct":
+        inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
+
+        # Creating and encoding patches
+        x = Patches(params["sinogram_width"], 1, name="extract_patches")(inputs)
+        x = PatchEncoder(params["num_sinograms"], params["projection_dims"], name="encode_patches")(x)
+
+        # Create multiple layers of the Transformer block.
+        for i in range(len(params["num_heads"])):
+            x = ViTBlock(
+                params["num_heads"][i],
+                params["projection_dims"],
+                params["units"][i],
+                name=f"block_{i}"
+            )(x)
+
+        # Creating the feature tensor
+        x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
+        x = Flatten()(x)
+        x = Dropout(0.5, name="dropout")(x)
+        outputs = PatchDecoder(
+            params["patch_size"],
+            params["patch_size"],
+            int(params["num_patches"] ** 0.5),
+            int(params["num_patches"] ** 0.5),
+            params["projection_dims"],
+            name="patch_decoder"
         )(x)
-        output_3d.append(conv)
-
-    if params["dimensions"] == 3:
-        outputs = Conv3D(1, 3, padding="same", name="output")(output_3d[-1])
-    else:
-        outputs = Conv2D(1, 3, padding="same", name="output")(output_3d[-1])
 
     model = Model(inputs=inputs, outputs=outputs)
     model.compile(optimizer=optimizer, loss=loss)
@@ -232,18 +263,33 @@ def data_generator(directory=""):
 if __name__ == "__main__":
     model = create_model(
         {
-            "shape": (64, 64, 6),
-            "blocks": (2, 2, 2, 2, 2),
-            "filters": (32, 64, 128, 256, 512),
-            "activation": "relu",
-            "drop_connect_rate": 0.2,
-            "dropout_rate": 0.2,
-            "block_size": 10,
-            "noise": 0.5,
-            "dropblock_2d": True,
-            "dropblock_3d": False,
-            "block_type": "resnet",
-            "attention": "se",
-            "dimensions": 3
+            "task": "ct",
+            "sinogram_width": 256,
+            "num_sinograms": 256,
+            "patch_size": 16,
+            "num_patches": 256,
+            "projection_dims": 64,
+            "num_heads": [5, 8, 8],
+            "units": [[128, 64], [128, 64], [256, 64]]
         }
     )
+
+    plot_model(model, "model.png")
+
+    """"
+    {
+        "shape": (64, 64, 6),
+        "blocks": (2, 2, 2, 2, 2),
+        "filters": (32, 64, 128, 256, 512),
+        "activation": "relu",
+        "drop_connect_rate": 0.2,
+        "dropout_rate": 0.2,
+        "block_size": 10,
+        "noise": 0.5,
+        "dropblock_2d": True,
+        "dropblock_3d": False,
+        "block_type": "resnet",
+        "attention": "se",
+        "dimensions": 3
+    }
+    """
