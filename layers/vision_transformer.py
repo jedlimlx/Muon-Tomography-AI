@@ -82,7 +82,7 @@ class PatchEncoder(Layer):
 
 
 class PatchDecoder(Layer):
-    def __init__(self, patch_width, patch_height, x_patches, y_patches, projection_dim, name=None):
+    def __init__(self, patch_width, patch_height, x_patches, y_patches, projection_dim, mlp_units, name=None):
         super(PatchDecoder, self).__init__(name=name)
         self.patch_width = patch_width
         self.patch_height = patch_height
@@ -93,7 +93,7 @@ class PatchDecoder(Layer):
             input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
         )
 
-        self.mlp = MLP([256, patch_width * patch_height], 0.1, name=f"{name}_mlp")
+        self.mlp = MLP([mlp_units, patch_width * patch_height], 0.1, name=f"{name}_mlp")
         self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
                                input_shape=[1, self.patch_width * self.patch_height],
                                name=f"{name}_reshape_1")
