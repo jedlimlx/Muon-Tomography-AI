@@ -112,9 +112,12 @@ class PatchDecoder(Layer):
                 ]
             )
         ) for x in range(self.x_patches * self.y_patches)]
-        reshaped = [self.reshape(x)[0] for x in patches]
+        reshaped = [self.reshape(x) for x in patches]
 
         # Merging into final output
-        x = tf.nn.space_to_depth(reshaped, self.patch_width)
-        x = tf.reshape(x, [self.x_patches * self.patch_width, self.y_patches * self.patch_height, 1])
-        return x
+        def func(x):
+            x = tf.nn.space_to_depth(x, self.patch_width)
+            x = tf.reshape(x, [self.x_patches * self.patch_width, self.y_patches * self.patch_height, 1])
+            return x
+
+        return tf.vectorized_map(func, reshaped)

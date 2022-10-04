@@ -215,7 +215,7 @@ def create_model(
             x = ViTBlock(
                 params["num_heads"][i],
                 params["projection_dims"],
-                params["units"][i],
+                params["transformer_units"][i],
                 name=f"block_{i}"
             )(x)
 
@@ -270,7 +270,7 @@ if __name__ == "__main__":
             "num_patches": 256,
             "projection_dims": 64,
             "num_heads": [5, 8, 8],
-            "units": [[128, 64], [128, 64], [256, 64]]
+            "transformer_units": [[128, 64], [128, 64], [256, 64]]
         }
     )
 
