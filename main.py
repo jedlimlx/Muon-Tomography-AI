@@ -108,68 +108,95 @@ def stack(
 
 
 def create_model(
-        shape=(64, 64, 6),
-        blocks=(2, 2, 2, 2, 2),
-        filters=(32, 64, 128, 256, 512),
-        activation="relu",
-        drop_connect_rate=0.2,
-        dropout_rate=0.2,
-        block_size=10,
-        noise=0.5,
-        dropblock_2d=True,
-        dropblock_3d=False,
-        block_type="resnet",
-        attention="cbam",
+        params,
         optimizer="adam",
-        dimensions=2,
         loss=binary_dice_coef_loss(),
         weights=None
 ):
+    # if params == "3d":
     output_2d = []
     output_3d = []
     output_skip = []
 
-    inputs = Input(shape=shape)
-    x = GaussianNoise(noise)(inputs)
+    inputs = Input(shape=params["shape"])
+    x = GaussianNoise(params["noise"])(inputs)
 
-    if block_type == "resnet":
-        x = Conv2D(filters[0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+    if params["block_type"] == "resnet":
+        x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = BatchNormalization(name="stem_batch_norm")(x)
-        x = Activation(activation, name="stem_activation")(x)
-    elif block_type == "convnext":
-        x = Conv2D(filters[0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+        x = Activation(params["activation"], name="stem_activation")(x)
+    elif params["block_type"] == "convnext":
+        x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
         x = LayerNormalization(name="stem_layer_norm")(x)
-        x = Activation(activation, name="stem_activation")(x)
+        x = Activation(params["activation"], name="stem_activation")(x)
 
     # Downward 2D part of U-Net
-    for i in range(len(blocks)):
-        x, conv = stack(filters[i], blocks[i], name=f"stack_2d_{i}", drop_connect_rate=drop_connect_rate,
-                        dropout_rate=dropout_rate, block_size=block_size, activation=activation,
-                        use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d, block_type=block_type,
-                        downsample_filter=filters[min(i + 1, len(filters) - 1)], attention=attention)(x)
+    for i in range(len(params["blocks"])):
+        x, conv = stack(
+            params["filters"][i],
+            params["blocks"][i],
+            name=f"stack_2d_{i}",
+            drop_connect_rate=params["drop_connect_rate"],
+            dropout_rate=params["dropout_rate"],
+            block_size=params["block_size"],
+            activation=params["activation"],
+            use_dropblock_2d=params["dropblock_2d"],
+            use_dropblock_3d=params["dropblock_3d"],
+            block_type=params["block_type"],
+            downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+            attention=params["attention"]
+        )(x)
         output_2d.append(conv)
-        output_skip.append(skip_connection_2d_to_3d(filters[i], activation, name=f"skip_connection_{i}",
-                                                    dims=dimensions)(conv))
+        output_skip.append(
+            skip_connection_2d_to_3d(
+                params["filters"][i],
+                params["activation"],
+                name=f"skip_connection_{i}",
+                dims=params["dimensions"]
+            )(conv)
+        )
 
     # Upward 2D / 3D part of U-Net
-    for i in range(len(blocks) - 1, -1, -1):
-        if i == len(blocks) - 1:
+    for i in range(len(params["blocks"]) - 1, -1, -1):
+        if i == len(params["blocks"]) - 1:
             x = output_skip[i]
         else:
             x = Concatenate()([output_skip[i], x])
 
-            if dimensions == 3:
-                x = Conv3D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
+            if params["dimensions"] == 3:
+                x = Conv3D(
+                    params["filters"][i], 3,
+                    activation=params["activation"],
+                    name=f"stack_3d_{i}_reshape",
+                    padding="same"
+                )(x)
             else:
-                x = Conv2D(filters[i], 3, activation=activation, name=f"stack_3d_{i}_reshape", padding="same")(x)
+                x = Conv2D(
+                    params["filters"][i], 3,
+                    activation=params["activation"],
+                    name=f"stack_3d_{i}_reshape",
+                    padding="same"
+                )(x)
 
-        x, conv = stack(filters[i], blocks[i], dims=dimensions, name=f"stack_3d_{i}", downsample=False,
-                        drop_connect_rate=drop_connect_rate, dropout_rate=dropout_rate, block_size=block_size,
-                        activation=activation, use_dropblock_2d=dropblock_2d, use_dropblock_3d=dropblock_3d,
-                        block_type=block_type, downsample_filter=filters[min(i + 1, len(filters) - 1)], attention=attention)(x)
+        x, conv = stack(
+            params["filters"][i],
+            params["blocks"][i],
+            dims=params["dimensions"],
+            name=f"stack_3d_{i}",
+            downsample=False,
+            drop_connect_rate=params["drop_connect_rate"],
+            dropout_rate=params["dropout_rate"],
+            block_size=params["block_size"],
+            activation=params["activation"],
+            use_dropblock_2d=params["dropblock_2d"],
+            use_dropblock_3d=params["dropblock_3d"],
+            block_type=params["block_type"],
+            downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+            attention=params["attention"]
+        )(x)
         output_3d.append(conv)
 
-    if dimensions == 3:
+    if params["dimensions"] == 3:
         outputs = Conv3D(1, 3, padding="same", name="output")(output_3d[-1])
     else:
         outputs = Conv2D(1, 3, padding="same", name="output")(output_3d[-1])
@@ -203,4 +230,20 @@ def data_generator(directory=""):
 
 
 if __name__ == "__main__":
-    model = create_model()
+    model = create_model(
+        {
+            "shape": (64, 64, 6),
+            "blocks": (2, 2, 2, 2, 2),
+            "filters": (32, 64, 128, 256, 512),
+            "activation": "relu",
+            "drop_connect_rate": 0.2,
+            "dropout_rate": 0.2,
+            "block_size": 10,
+            "noise": 0.5,
+            "dropblock_2d": True,
+            "dropblock_3d": False,
+            "block_type": "resnet",
+            "attention": "se",
+            "dimensions": 3
+        }
+    )
