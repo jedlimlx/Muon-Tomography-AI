@@ -221,7 +221,7 @@ def create_model(
 
         # Creating the feature tensor
         x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
-        x = Flatten()(x)
+        # x = Flatten()(x)
         x = Dropout(params["dropout"], name="dropout")(x)
         outputs = PatchDecoder(
             params["patch_size"],
@@ -271,8 +271,9 @@ if __name__ == "__main__":
             "num_patches": 256,
             "projection_dims": 64,
             "dropout": 0.1,
-            "decoder_units": 1024,
+            "decoder_units": 128,
             "num_heads": [5, 8, 8],
+            # "transformer_units": [[128, 64], [128, 64], [256, 64]]
             "transformer_units": [[128, 64], [128, 64], [256, 64]]
         }
     )

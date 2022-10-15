@@ -94,30 +94,25 @@ class PatchDecoder(Layer):
         )
 
         self.mlp = MLP([mlp_units, patch_width * patch_height], 0.1, name=f"{name}_mlp")
-        self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
-                               input_shape=[1, self.patch_width * self.patch_height],
-                               name=f"{name}_reshape_1")
-        self.concatenate = Concatenate(axis=-1)
+        # self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
+        #                        input_shape=[1, self.patch_width * self.patch_height],
+        #                        name=f"{name}_reshape_1")
+        # self.concatenate = Concatenate(axis=-1)
 
     def call(self, encoded):
         positions = tf.range(start=0, limit=self.x_patches * self.y_patches, delta=1)
         embedding = self.positional_embedding(positions)
 
         # Extracting patches
-        patches = [self.mlp(
-            self.concatenate(
-                [
-                    K.tile(tf.expand_dims(embedding[x], axis=0), (K.shape(encoded)[0], 1)),
-                    encoded
-                ]
-            )
-        ) for x in range(self.x_patches * self.y_patches)]
-        reshaped = [self.reshape(x) for x in patches]
+        patches = self.mlp(encoded + embedding)
+        reshaped = tf.reshape(patches, (-1, 16, 16, 16, 16))
+        reshaped = tf.einsum("npqhw->nphqw", reshaped)
+        reshaped = tf.reshape(reshaped, (-1, 256, 256))
 
         # Merging into final output
-        def func(x):
-            x = tf.nn.space_to_depth(x, self.patch_width)
-            x = tf.reshape(x, [self.x_patches * self.patch_width, self.y_patches * self.patch_height, 1])
-            return x
+        # def func(x):
+        #     x = tf.nn.space_to_depth(x, self.patch_width)
+        #     x = tf.reshape(x, [self.x_patches * self.patch_width, self.y_patches * self.patch_height, 1])
+        #     return x
 
-        return tf.vectorized_map(func, reshaped)
+        return reshaped
