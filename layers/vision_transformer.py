@@ -107,7 +107,7 @@ class PatchDecoder(Layer):
         patches = self.mlp(encoded + embedding)
         reshaped = tf.reshape(patches, (-1, 16, 16, 16, 16))
         reshaped = tf.einsum("npqhw->nphqw", reshaped)
-        reshaped = tf.reshape(reshaped, (-1, 256, 256))
+        reshaped = tf.reshape(reshaped, (-1, 256, 256, 1))
 
         # Merging into final output
         # def func(x):
