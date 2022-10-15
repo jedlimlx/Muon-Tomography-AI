@@ -102,10 +102,9 @@ class PatchDecoder(Layer):
     def call(self, encoded):
         positions = tf.range(start=0, limit=self.x_patches * self.y_patches, delta=1)
         embedding = self.positional_embedding(positions)
-        embedding = tf.tile(tf.expand_dims(embedding, 0), (tf.shape(encoded)[0], 1, 1))
 
         # Extracting patches
-        patches = self.mlp(tf.concat([encoded, embedding], axis=-1))
+        patches = self.mlp(encoded + embedding)
         reshaped = tf.reshape(patches, (-1, 16, 16, 16, 16))
         reshaped = tf.einsum("npqhw->nphqw", reshaped)
         reshaped = tf.reshape(reshaped, (-1, 256, 256, 1))
