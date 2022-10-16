@@ -5,12 +5,12 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
 
-def MLP(hidden_units, dropout_rate, name=None):
+def MLP(hidden_units, dropout_rate, activation='gelu', name=None):
     model = Sequential(name=name)
 
     i = 0
     for units in hidden_units:
-        model.add(Dense(units, activation="gelu", name=name + f"_dense_{i}"))
+        model.add(Dense(units, activation=activation, name=name + f"_dense_{i}"))
         model.add(Dropout(dropout_rate, name=name + f"_dropout_{i}"))
         i += 1
 
@@ -93,7 +93,7 @@ class PatchDecoder(Layer):
             input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
         )
 
-        self.mlp = MLP([mlp_units, patch_width * patch_height], 0.1, name=f"{name}_mlp")
+        self.mlp = MLP([mlp_units, patch_width * patch_height], 0.1, activation='linear', name=f"{name}_mlp")
         # self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
         #                        input_shape=[1, self.patch_width * self.patch_height],
         #                        name=f"{name}_reshape_1")

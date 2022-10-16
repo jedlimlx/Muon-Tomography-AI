@@ -220,7 +220,7 @@ def create_model(
             )(x)
 
         # Creating the feature tensor
-        x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
+        # x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
         # x = Flatten()(x)
         x = Dropout(params["dropout"], name="dropout")(x)
         outputs = PatchDecoder(
