@@ -5,7 +5,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
 
-def MLP(hidden_units, dropout_rate, activation='gelu', name=None):
+def MLP(hidden_units, dropout_rate, activation='swish', name=None):
     model = Sequential(name=name)
 
     i = 0
