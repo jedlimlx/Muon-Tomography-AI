@@ -93,7 +93,7 @@ class PatchDecoder(Layer):
             input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
         )
 
-        self.mlp = MLP([mlp_units, patch_width * patch_height], 0.1, activation='linear', name=f"{name}_mlp")
+        self.mlp = MLP([mlp_units, 2 * mlp_units, patch_width * patch_height], 0.1, activation='linear', name=f"{name}_mlp")
         # self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
         #                        input_shape=[1, self.patch_width * self.patch_height],
         #                        name=f"{name}_reshape_1")
