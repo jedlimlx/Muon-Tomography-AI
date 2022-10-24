@@ -1,20 +1,57 @@
 import tensorflow as tf
-import tensorflow.keras.backend as K
+import numpy as np
 
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
 
-def MLP(hidden_units, dropout_rate, activation='swish', name=None):
-    model = Sequential(name=name)
+def get_angles(pos, i, d_model):
+    angle_rates = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model))
+    return pos * angle_rates
 
-    i = 0
-    for units in hidden_units:
-        model.add(Dense(units, activation=activation, name=name + f"_dense_{i}"))
-        model.add(Dropout(dropout_rate, name=name + f"_dropout_{i}"))
-        i += 1
 
-    return model
+def positional_encoding(position, d_model):
+    angle_rads = get_angles(np.arange(position)[:, np.newaxis],
+                            np.arange(d_model)[np.newaxis, :],
+                            d_model)
+
+    # apply sin to even indices in the array; 2i
+    angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
+
+    # apply cos to odd indices in the array; 2i+1
+    angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
+
+    pos_encoding = angle_rads[np.newaxis, ...]
+
+    return tf.cast(pos_encoding, dtype=tf.float32)
+
+
+class MLP(Layer):
+    def __init__(self, hidden_dim, out_dim, dropout_rate, hidden_activation='gelu', out_activation='linear', name=None):
+        super(MLP, self).__init__()
+        self.dense1 = Dense(hidden_dim, activation=hidden_activation, name=f"{name}_dense_0")
+        self.drop1 = Dropout(dropout_rate, name=f"{name}_dropout_0")
+        self.dense2 = Dense(out_dim, out_activation, name=f"{name}_dense_1")
+        self.drop2 = Dropout(dropout_rate, name=f"{name}_dropout_1")
+
+    def call(self, inputs, *args, **kwargs):
+        x = self.dense1(inputs)
+        x = self.drop1(x)
+        x = self.dense2(x)
+        x = self.drop2(x)
+        return x
+
+
+# def MLP(hidden_units, dropout_rate, activation='gelu', name=None):
+#     model = Sequential(name=name)
+#
+#     i = 0
+#     for units in hidden_units:
+#         model.add(Dense(units, activation=activation, name=name + f"_dense_{i}"))
+#         model.add(Dropout(dropout_rate, name=name + f"_dropout_{i}"))
+#         i += 1
+#
+#     return model
 
 
 def ViTBlock(num_heads, projection_dim, transformer_units, name=None):
@@ -37,7 +74,8 @@ def ViTBlock(num_heads, projection_dim, transformer_units, name=None):
         x3 = LayerNormalization(epsilon=1e-6, name=f"{name}_layer_norm_2")(x2)
 
         # Multi-layer perception
-        x3 = MLP(hidden_units=transformer_units, dropout_rate=0.1, name=f"{name}_mlp")(x3)
+        x3 = MLP(hidden_dim=transformer_units[0], out_dim=transformer_units[1],
+                 dropout_rate=0.1, name=f"{name}_mlp")(x3)
 
         # Skip connection 2
         encoded_patches = Add(name=f"{name}_add_2")([x3, x2])
@@ -71,13 +109,11 @@ class PatchEncoder(Layer):
         super(PatchEncoder, self).__init__(name=name)
         self.num_patches = num_patches
         self.projection = Dense(units=projection_dim)
-        self.position_embedding = Embedding(
-            input_dim=num_patches, output_dim=projection_dim
-        )
+        self.position_embedding = positional_encoding(num_patches, projection_dim)
 
     def call(self, patch):
         positions = tf.range(start=0, limit=self.num_patches, delta=1)
-        encoded = self.projection(patch) + self.position_embedding(positions)
+        encoded = self.projection(patch) + self.position_embedding
         return encoded
 
 
@@ -89,24 +125,26 @@ class PatchDecoder(Layer):
         self.x_patches = x_patches
         self.y_patches = y_patches
 
-        self.positional_embedding = Embedding(
-            input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
-        )
+        # self.positional_embedding = Embedding(
+        #     input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
+        # )
 
-        self.mlp = MLP([mlp_units, 2 * mlp_units, patch_width * patch_height], 0.1, activation='linear', name=f"{name}_mlp")
+        # self.positional_embedding = positional_encoding(256, projection_dim)
+
+        # self.mlp = MLP(hidden_dim=mlp_units, out_dim=patch_width * patch_height, dropout_rate=0.1, name=f"{name}_mlp")
         # self.reshape = Reshape(target_shape=[self.patch_width, self.patch_height, 1],
         #                        input_shape=[1, self.patch_width * self.patch_height],
         #                        name=f"{name}_reshape_1")
         # self.concatenate = Concatenate(axis=-1)
 
     def call(self, encoded):
-        positions = tf.range(start=0, limit=self.x_patches * self.y_patches, delta=1)
-        embedding = self.positional_embedding(positions)
+        # positions = tf.range(start=0, limit=self.x_patches * self.y_patches, delta=1)
+        # embedding = self.positional_embedding(positions)
 
         # Extracting patches
-        patches = self.mlp(encoded + embedding)
-        reshaped = tf.reshape(patches, (-1, 16, 16, 16, 16))
-        reshaped = tf.einsum("npqhw->nphqw", reshaped)
+        # patches = self.mlp(encoded + self.positional_embedding)
+        reshaped = tf.reshape(encoded, (-1, 16, 16, 16, 16))
+        reshaped = tf.transpose(reshaped, [0, 1, 3, 2, 4])
         reshaped = tf.reshape(reshaped, (-1, 256, 256, 1))
 
         # Merging into final output
