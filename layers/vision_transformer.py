@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 
 from functools import partial
 
@@ -67,7 +67,7 @@ class MLP(Layer):
 #     return model
 
 
-class ViTBlock(Layer):
+class EncoderBlock(Layer):
     def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0.1, activation='gelu', name='vit_block',
                  norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
         super().__init__(name=name, **kwargs)
@@ -83,6 +83,32 @@ class ViTBlock(Layer):
         x3 = self.norm2(x2)
         x3 = self.mlp(x3)
         return x2 + x3
+
+
+class DecoderBlock(Layer):
+    def __init__(self, num_heads=16, enc_dim=256, dim=256, mlp_units=512, dropout=0.1, activation='gelu',
+                 name='decoder_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.norm1 = norm(name=f"{name}_norm_1")
+        self.self_attention = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout,
+                                                 name=f"{name}_self_attention")
+        self.norm2 = norm(name=f"{name}_norm_2")
+        self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=enc_dim, query_dim=dim, dropout=dropout,
+                                                  name=f"{name}_cross_attention")
+        self.norm3 = norm(name=f"{name}_norm_3")
+        self.mlp = MLP(hidden_dim=mlp_units, out_dim=dim, hidden_activation=activation, name=f"{name}_mlp")
+
+    def call(self, inputs, **kwargs):
+        x, k = inputs
+        x1 = self.norm1(x)
+        x2 = self.self_attention(x1, x1, use_causal_mask=True)
+        x2 = x2 + x1
+        x2 = self.norm2(x2)
+        x3 = self.cross_attention(x2, k)
+        x3 = x3 + x2
+        x3 = self.norm3(x3)
+        x4 = self.mlp(x3)
+        return x4 + x3
 
 
 class Patches(Layer):
@@ -182,8 +208,8 @@ def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=25
 
     # encoder
     for i in range(enc_layers):
-        x = ViTBlock(num_heads=enc_heads, mlp_units=enc_mlp_units, dropout=dropout, activation=activation, norm=norm,
-                     name=f"enc_block_{i}")(x)
+        x = EncoderBlock(num_heads=enc_heads, mlp_units=enc_mlp_units, dim=enc_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"enc_block_{i}")(x)
 
     # decoder projection
     if dec_projection:
@@ -191,8 +217,8 @@ def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=25
 
     # decoder
     for i in range(dec_layers):
-        x = ViTBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dropout=dropout, activation=activation, norm=norm,
-                     name=f"dec_block_{i}")(x)
+        x = EncoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"dec_block_{i}")(x)
 
     # output projection
     if output_projection:
@@ -203,3 +229,49 @@ def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=25
     x = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(x)
 
     return Model(inputs=inputs, outputs=x)
+
+
+def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
+                enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
+                dec_mlp_units=512, output_projection=True, output_patch_height=16, output_patch_width=16,
+                output_x_patches=16, output_y_patches=16, dropout=0.1,
+                activation='gelu', norm=partial(LayerNormalization, epsilon=1e-5)):
+    # error checking
+    if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
+        raise ValueError("Cannot divide image into even patches")
+
+    num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
+
+    if (not output_projection) and dec_dim != output_patch_height * output_patch_width:
+        raise ValueError("Output patch size must patch decoder dims")
+
+    inputs = Input(shape=input_shape)
+    targets = Input(shape=(output_y_patches * output_patch_height, output_x_patches, output_patch_width, 1))
+
+    # encoder projection
+    x = Patches(patch_height=sinogram_height, patch_width=sinogram_width, name="enc_patchify")(inputs)
+    x = PatchEncoder(num_patches=num_patches, projection_dim=enc_dim, name="enc_projection")(x)
+
+    # encoder
+    for i in range(enc_layers):
+        x = EncoderBlock(num_heads=enc_heads, mlp_units=enc_mlp_units, dim=enc_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"enc_block_{i}")(x)
+
+    # decoder projection
+    y = Patches(patch_height=output_patch_height, patch_width=output_patch_width, name="dec_patchify")(targets)
+    y = PatchEncoder(num_patches=num_patches, projection_dim=dec_dim, name="dec_projection")(y)
+
+    # decoder
+    for i in range(dec_layers):
+        y = DecoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, enc_dim=enc_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"dec_block_{i}")([y, x])
+
+    # output projection
+    if output_projection:
+        y = PatchEncoder(num_patches=num_patches, projection_dim=output_patch_width * output_patch_height,
+                         name="output_projection")(y)
+
+    # reshape
+    y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(y)
+
+    return Model(inputs=[inputs, targets], outputs=y)
