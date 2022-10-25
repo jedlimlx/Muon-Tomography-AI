@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
-from keras.layers import *
-from keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
 
 from functools import partial
 
@@ -10,6 +10,29 @@ from functools import partial
 def get_angles(pos, i, d_model):
     angle_rates = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model))
     return pos * angle_rates
+
+
+def compute_causal_mask(size):
+    """Computes a causal mask (e.g., for masked self-attention layers).
+    For example, if query and value both contain sequences of length 4,
+    this function returns a boolean `Tensor` equal to:
+    ```
+    [[[True,  False, False, False],
+      [True,  True,  False, False],
+      [True,  True,  True,  False],
+      [True,  True,  True,  True]]]
+    ```
+    Args:
+      query: query `Tensor` of shape `(B, T, ...)`.
+      value: value `Tensor` of shape `(B, S, ...)` (optional, defaults to
+      query).
+    Returns:
+      mask: a boolean `Tensor` of shape [1, T, S] containing a lower
+            triangular matrix of shape [T, S].
+    """
+    return tf.linalg.band_part(  # creates a lower triangular matrix
+        tf.ones((1, size, size), tf.bool), -1, 0
+    )
 
 
 def positional_encoding(position, d_model):
@@ -41,7 +64,7 @@ class MLP(Layer):
             out_activation: activation for output layer (default 'linear')
             name: name of the layer
         """
-        super(MLP, self).__init__()
+        super(MLP, self).__init__(name=name)
         self.dense1 = Dense(hidden_dim, activation=hidden_activation, name=f"{name}_dense_0")
         self.drop1 = Dropout(dropout_rate, name=f"{name}_dropout_0")
         self.dense2 = Dense(out_dim, out_activation, name=f"{name}_dense_1")
@@ -86,14 +109,15 @@ class EncoderBlock(Layer):
 
 
 class DecoderBlock(Layer):
-    def __init__(self, num_heads=16, enc_dim=256, dim=256, mlp_units=512, dropout=0.1, activation='gelu',
-                 name='decoder_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
+    def __init__(self, num_heads=16, enc_dim=256, dim=256, mlp_units=512, num_patches=256, dropout=0.1,
+                 activation='gelu', name='decoder_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
         super().__init__(name=name, **kwargs)
+        self.num_patches = num_patches
         self.norm1 = norm(name=f"{name}_norm_1")
         self.self_attention = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout,
                                                  name=f"{name}_self_attention")
         self.norm2 = norm(name=f"{name}_norm_2")
-        self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=enc_dim, query_dim=dim, dropout=dropout,
+        self.cross_attention = MultiHeadAttention(num_heads=num_heads, key_dim=enc_dim, value_dim=dim, dropout=dropout,
                                                   name=f"{name}_cross_attention")
         self.norm3 = norm(name=f"{name}_norm_3")
         self.mlp = MLP(hidden_dim=mlp_units, out_dim=dim, hidden_activation=activation, name=f"{name}_mlp")
@@ -101,7 +125,7 @@ class DecoderBlock(Layer):
     def call(self, inputs, **kwargs):
         x, k = inputs
         x1 = self.norm1(x)
-        x2 = self.self_attention(x1, x1, use_causal_mask=True)
+        x2 = self.self_attention(x1, x1, attention_mask=compute_causal_mask(self.num_patches))
         x2 = x2 + x1
         x2 = self.norm2(x2)
         x3 = self.cross_attention(x2, k)
@@ -246,7 +270,7 @@ def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256
         raise ValueError("Output patch size must patch decoder dims")
 
     inputs = Input(shape=input_shape)
-    targets = Input(shape=(output_y_patches * output_patch_height, output_x_patches, output_patch_width, 1))
+    targets = Input(shape=(output_y_patches * output_patch_height, output_x_patches * output_patch_width, 1))
 
     # encoder projection
     x = Patches(patch_height=sinogram_height, patch_width=sinogram_width, name="enc_patchify")(inputs)
@@ -263,13 +287,14 @@ def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256
 
     # decoder
     for i in range(dec_layers):
-        y = DecoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, enc_dim=enc_dim, dropout=dropout,
-                         activation=activation, norm=norm, name=f"dec_block_{i}")([y, x])
+        y = DecoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, enc_dim=enc_dim,
+                         num_patches=num_patches, dropout=dropout, activation=activation, norm=norm,
+                         name=f"dec_block_{i}")([y, x])
 
     # output projection
     if output_projection:
-        y = PatchEncoder(num_patches=num_patches, projection_dim=output_patch_width * output_patch_height,
-                         name="output_projection")(y)
+        y = MLP(hidden_dim=dec_mlp_units, out_dim=output_patch_height * output_patch_width,
+                hidden_activation=activation, name=f"output_projection")(y)
 
     # reshape
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(y)
