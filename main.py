@@ -6,7 +6,7 @@ from tensorflow.keras.models import *
 from tensorflow.keras.utils import plot_model
 
 from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D
-from layers import ViTBlock, Patches, PatchEncoder, PatchDecoder
+from layers import Patches, PatchEncoder, PatchDecoder
 from losses import binary_dice_coef_loss
 
 
