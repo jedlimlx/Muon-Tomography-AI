@@ -5,7 +5,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 from tensorflow.keras.utils import plot_model
 
-from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D
+from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D, MBConvBlock
 from layers import Patches, PatchEncoder, PatchDecoder
 from losses import binary_dice_coef_loss
 
@@ -45,7 +45,7 @@ def stack(
         attention="se"
 ):
     def apply(x):
-        if block_type == "resnet":
+        if block_type == "resnet" or dims == 3:
             x = ResidualBlock(filters, name=name + "_block1", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
                               attention=attention)(x)
@@ -59,6 +59,14 @@ def stack(
             for i in range(2, blocks + 1):
                 x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation,
                                   drop_connect_rate=drop_connect_rate, dims=dims)(x)
+
+        elif block_type == "efficientnet":
+            for i in range(1, blocks):
+                x = MBConvBlock(filters, filters, name=name + "_block" + str(i), activation=activation,
+                                kernel_size=kernel_size, dims=dims)(x)
+
+            x = MBConvBlock(filters, downsample_filter, name=name + f"_block{blocks}", activation=activation,
+                            kernel_size=kernel_size, dims=dims)(x)
 
         conv = x
 
@@ -89,6 +97,13 @@ def stack(
                 )
 
                 x = downsample_layer(x)
+            elif block_type == "efficientnet":
+                x = Conv2D(
+                    downsample_filter,
+                    kernel_size=2,
+                    strides=2,
+                    name=name + "_downsampling_conv",
+                )(x)
         else:
             if dims == 3:
                 if use_dropblock_3d:
@@ -124,7 +139,7 @@ def create_model(
         inputs = Input(shape=params["shape"])
         x = GaussianNoise(params["noise"])(inputs)
 
-        if params["block_type"] == "resnet":
+        if params["block_type"] == "resnet" or params["block_type"] == "efficientnet":
             x = Conv2D(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
             x = BatchNormalization(name="stem_batch_norm")(x)
             x = Activation(params["activation"], name="stem_activation")(x)
@@ -262,38 +277,21 @@ def data_generator(directory=""):
 
 
 if __name__ == "__main__":
-    model = create_model(
+    create_model(
         {
-            "task": "ct",
-            "sinogram_width": 256,
-            "num_sinograms": 256,
-            "patch_size": 16,
-            "num_patches": 256,
-            "projection_dims": 64,
-            "dropout": 0.1,
-            "decoder_units": 128,
-            "num_heads": [5, 8, 8],
-            # "transformer_units": [[128, 64], [128, 64], [256, 64]]
-            "transformer_units": [[128, 64], [128, 64], [256, 64]]
+            "task": "sparse",
+            "shape": (64, 64, 6),
+            "blocks": (2, 2, 2, 2, 2),
+            "filters": (32, 64, 128, 256, 512),
+            "activation": "swish",
+            "drop_connect_rate": 0.2,
+            "dropout_rate": 0.2,
+            "block_size": 10,
+            "noise": 0.5,
+            "dropblock_2d": True,
+            "dropblock_3d": False,
+            "block_type": "efficientnet",
+            "attention": "se",
+            "dimensions": 3
         }
     )
-
-    plot_model(model, "model.png")
-
-    """"
-    {
-        "shape": (64, 64, 6),
-        "blocks": (2, 2, 2, 2, 2),
-        "filters": (32, 64, 128, 256, 512),
-        "activation": "relu",
-        "drop_connect_rate": 0.2,
-        "dropout_rate": 0.2,
-        "block_size": 10,
-        "noise": 0.5,
-        "dropblock_2d": True,
-        "dropblock_3d": False,
-        "block_type": "resnet",
-        "attention": "se",
-        "dimensions": 3
-    }
-    """
