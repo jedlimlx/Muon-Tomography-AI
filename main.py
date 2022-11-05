@@ -215,9 +215,9 @@ def create_model(
             output_3d.append(conv)
 
         if params["dimensions"] == 3:
-            outputs = Conv3D(1, 3, padding="same", name="output")(output_3d[-1])
+            outputs = Conv3D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
         else:
-            outputs = Conv2D(1, 3, padding="same", name="output")(output_3d[-1])
+            outputs = Conv2D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
     elif params["task"] == "ct":
         inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
 
