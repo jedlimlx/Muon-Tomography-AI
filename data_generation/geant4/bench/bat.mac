@@ -1,0 +1,29 @@
+# change world parameter
+/usr/det/setField 0.1 tesla
+/usr/det/setMaxStep  1.0 cm
+
+#inactivate msc
+#/process/inactivate msc
+
+# /gun/particle e+
+# /gun/position 0 0 0 cm
+# /gun/direction 0 0 1
+# /gun/energy 2 MeV
+
+# # for positron generate
+# /gun/position 0 0 0 cm
+# /gun/usr/particle 6
+
+# # for 2 gamma generate
+/gun/position 0 0 1 cm
+/gun/usr/particle 7
+
+# for 3 gamma generate
+/gun/position 0 0 1 cm
+/gun/usr/particle 8
+
+/run/initialize
+
+# /tracking/verbose 2
+/run/beamOn 10000
+
