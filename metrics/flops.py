@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 
 
-def get_flops(model, model_inputs) -> float:
+def get_flops(model, model_inputs, strategy=None) -> float:
     """
     Calculate FLOPS [GFLOPs] for a tf.keras.Model or tf.keras.Sequential model
     in inference mode. It uses tf.compat.v1.profiler under the hood.

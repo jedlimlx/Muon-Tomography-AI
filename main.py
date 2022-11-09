@@ -127,6 +127,20 @@ def stack(
     return apply
 
 
+def round_filters(filters, divisor=8, width_coefficient=1):
+    """Round number of filters based on depth multiplier."""
+    filters *= width_coefficient
+    new_filters = max(divisor, int(filters + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_filters < 0.9 * filters:
+        new_filters += divisor
+    return int(new_filters)
+
+
+def round_repeats(repeats, depth_coefficient=1):
+    """Round number of repeats based on depth multiplier."""
+    return int(math.ceil(depth_coefficient * repeats))
+
 def create_model(
         params,
         optimizer="adam",
@@ -254,7 +268,7 @@ def create_model(
     model.compile(optimizer=optimizer, loss=loss)
     model.summary()
 
-    print(f"GFLOPS: {get_flops(model, [tf.zeros((1,) + params['shape'])])}")
+    # print(f"GFLOPS: {get_flops(model, [tf.zeros((1,) + params['shape'])])}")
 
     if weights is not None: model.load_weights(weights)
     return model
