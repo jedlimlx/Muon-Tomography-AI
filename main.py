@@ -1,6 +1,9 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
 
+from model_profiler import model_profiler
+
+import tensorflow as tf
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 from tensorflow.keras.utils import plot_model
@@ -8,6 +11,8 @@ from tensorflow.keras.utils import plot_model
 from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D, MBConvBlock
 from layers import Patches, PatchEncoder, PatchDecoder
 from losses import binary_dice_coef_loss
+
+from metrics import get_flops
 
 
 # the skip connections in the U-Net
@@ -251,6 +256,8 @@ def create_model(
     model = Model(inputs=inputs, outputs=outputs)
     model.compile(optimizer=optimizer, loss=loss)
     model.summary()
+
+    print(f"GFLOPS: {get_flops(model, [tf.zeros((1,) + params['shape'])])}")
 
     if weights is not None: model.load_weights(weights)
     return model
