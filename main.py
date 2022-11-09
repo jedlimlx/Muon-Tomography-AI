@@ -1,12 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from model_profiler import model_profiler
-
 import tensorflow as tf
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
-from tensorflow.keras.utils import plot_model
 
 from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D, MBConvBlock
 from layers import Patches, PatchEncoder, PatchDecoder
