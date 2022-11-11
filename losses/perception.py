@@ -11,10 +11,10 @@ model = EfficientNetB3(
 
 def perception_loss(y_pred, y_true, model=model):
     shape = tf.shape(y_pred)
-    y_pred = tf.reshape(y_pred, (shape[0] * shape[1], shape[2], shape[3], shape[4]))
+    y_pred = tf.reshape(y_pred, (shape[0] * shape[1], shape[2], shape[3], shape[4])) > 0.5
     y_true = tf.reshape(y_true, (shape[0] * shape[1], shape[2], shape[3], shape[4]))
 
-    feature_pred = model(tf.tile(y_pred, tf.constant([1, 1, 1, 3]))) > 0.5
+    feature_pred = model(tf.tile(y_pred, tf.constant([1, 1, 1, 3])))
     feature_true = model(tf.tile(y_true, tf.constant([1, 1, 1, 3])))
 
     mse = MeanSquaredError(reduction=tf.keras.losses.Reduction.SUM)
