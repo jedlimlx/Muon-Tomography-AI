@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -141,6 +142,7 @@ def round_repeats(repeats, depth_coefficient=1):
     """Round number of repeats based on depth multiplier."""
     return int(math.ceil(depth_coefficient * repeats))
 
+
 def create_model(
         params,
         optimizer="adam",
@@ -268,8 +270,6 @@ def create_model(
     model.compile(optimizer=optimizer, loss=loss)
     model.summary()
 
-    # print(f"GFLOPS: {get_flops(model, [tf.zeros((1,) + params['shape'])])}")
-
     if weights is not None: model.load_weights(weights)
     return model
 
@@ -295,21 +295,24 @@ def data_generator(directory=""):
 
 
 if __name__ == "__main__":
-    create_model(
+    model = create_model(
         {
             "task": "sparse",
             "shape": (64, 64, 6),
-            "blocks": (2, 2, 2, 2, 2),
-            "filters": (32, 64, 128, 256, 512),
+            "blocks": (1, 2, 2, 3, 4),
+            "filters": (64, 64, 64, 64, 64),
             "activation": "swish",
-            "drop_connect_rate": 0.2,
-            "dropout_rate": 0.2,
+            "drop_connect_rate": 0.05,
+            "dropout_rate": 0.05,
             "block_size": 10,
-            "noise": 0.5,
+            "noise": 0.20,
             "dropblock_2d": True,
             "dropblock_3d": False,
-            "block_type": "efficientnet",
+            "block_type": "convnext",
             "attention": "se",
             "dimensions": 3
         }
     )
+
+    print(f"GFLOPS: {get_flops(model, [tf.zeros((1, 64, 64, 6))])}")
+

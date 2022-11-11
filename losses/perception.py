@@ -17,7 +17,7 @@ def perception_loss(y_pred, y_true, model=model):
     feature_pred = model(tf.tile(y_pred, tf.constant([1, 1, 1, 3])))
     feature_true = model(tf.tile(y_true, tf.constant([1, 1, 1, 3])))
 
-    mse = MeanSquaredError()
+    mse = MeanSquaredError(reduction=tf.keras.losses.Reduction.SUM)
     return mse(feature_pred, feature_true)
 
 
