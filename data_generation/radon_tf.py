@@ -4,13 +4,14 @@ import numpy as np
 
 
 @tf.function
-def radon_parabeam(img, num_angles, num_detectors):
+def radon_parabeam(img, num_angles, num_detectors, size):
     """
     Computes the radon transform for a parallel beam configuration
     Args:
         img: Input object
         num_angles: Number of angles (dim 0 of output)
         num_detectors: Number of detectors (dim 1 of output)
+        size: Physical length of one edge
 
     Returns: Output sinogram with dim (batch, num_angles, num_detectors)
 
@@ -21,7 +22,7 @@ def radon_parabeam(img, num_angles, num_detectors):
     detectors = tf.range(-diag_length / 2, diag_length / 2, diag_length / num_detectors)
     lines = tf.reshape((tf.stack(tf.meshgrid(detectors, detectors), axis=-1)), (1, num_detectors * num_detectors, 2, 1))
     lines = tf.cast(lines, tf.float32)
-    angles = tf.range(0, np.pi, np.pi / num_angles)
+    angles = tf.range(0, 2 * np.pi, 2 * np.pi / num_angles)
     rot_mat = tf.stack([tf.cos(angles), -tf.sin(angles), tf.sin(angles), tf.cos(angles)], axis=-1)
     rot_mat = tf.reshape(rot_mat, (num_angles, 1, 2, 2))
     lines = tf.reshape(tf.matmul(rot_mat, lines), (-1, 2))
@@ -31,7 +32,7 @@ def radon_parabeam(img, num_angles, num_detectors):
                                                    y_ref=img, axis=0, fill_value=0)
 
     sinogram = tf.reduce_sum(tf.reshape(interp, (num_angles, num_detectors, num_detectors, -1)), axis=2)
-    return tf.transpose(sinogram, (2, 0, 1))
+    return tf.transpose(sinogram, (2, 0, 1)) * size * np.sqrt(2.0) / img_shape
 
 
 def test():
