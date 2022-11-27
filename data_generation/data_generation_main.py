@@ -1,10 +1,6 @@
-import multiprocessing
-import numpy as np
-from perlin_noise import generate_fractal_noise_3d
-from renderer import Renderer
-from tqdm import tqdm
+from data_generation.perlin_noise import generate_fractal_noise_3d
 import tensorflow as tf
-from radon_tf import radon_parabeam
+from data_generation.radon_tf import radon_parabeam
 
 MU_WATER = 20
 MU_AIR = 0.02
