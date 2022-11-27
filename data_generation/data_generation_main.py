@@ -31,8 +31,8 @@ def generate_data_tf(batch_size, img_size, num_angles, num_detectors, num_photon
     sinogram = radon_parabeam(imgs, num_angles, num_detectors, size)
 
     # noise addition
-    sinogram = tf.squeeze(tf.random.poisson((1,), tf.exp(-1 * sinogram) * num_photons) / num_photons, axis=0)
-    sinogram = tf.math.log(tf.clip_by_value(sinogram, clip_value_min=0.1 / num_photons, clip_value_max=tf.float32.max))
+    # sinogram = tf.squeeze(tf.random.poisson((1,), tf.exp(-1 * sinogram) * num_photons) / num_photons, axis=0)
+    # sinogram = tf.math.log(tf.clip_by_value(sinogram, clip_value_min=0.1 / num_photons, clip_value_max=tf.float32.max))
 
     return imgs, sinogram
 
