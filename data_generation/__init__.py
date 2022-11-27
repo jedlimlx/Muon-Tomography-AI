@@ -1,1 +1,1 @@
-from data_generation_main import generate_data_tf
+from data_generation.data_generation_main import generate_data_tf
