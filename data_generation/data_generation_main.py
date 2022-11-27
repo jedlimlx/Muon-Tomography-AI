@@ -33,7 +33,6 @@ def generate_data_tf(batch_size, img_size, num_angles, num_detectors, num_photon
     imgs = tf.clip_by_value(generate_fractal_noise_3d((batch_size, img_size, img_size), res=(2, 2, 2), octaves=3), 0, 1)
     imgs = imgs * MU_MAX
     sinogram = radon_parabeam(imgs, num_angles, num_detectors, size)
-    print(imgs)
 
     # noise addition
     sinogram = tf.squeeze(tf.random.poisson((1,), tf.exp(-1 * sinogram) * num_photons) / num_photons, axis=0)
