@@ -37,7 +37,7 @@ def generate_data_tf(batch_size, img_size, num_angles, num_detectors, num_photon
     return imgs, sinogram
 
 
-def main():
+def test():
     import matplotlib.pyplot as plt
     imgs, sinograms = generate_data_tf(16, 256, 256, 256, 4096, 0.13)
     plt.imshow(imgs[0])
@@ -56,7 +56,3 @@ def main():
     #     np.save(f"out/sinograms/sinogram_{i}.npy", np.array(arr) / (-MU_MAX))
     # pool.close()
     # pool.join()
-
-
-if __name__ == "__main__":
-    main()
