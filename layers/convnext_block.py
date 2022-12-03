@@ -64,7 +64,15 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
     def apply(inputs):
         x = inputs
 
-        if dims == 2:
+        if dims == 1:
+            x = Conv1D(
+                filters=projection_dim,
+                kernel_size=7,
+                padding="same",
+                groups=projection_dim,
+                name=name + "_depthwise_conv",
+            )(x)
+        elif dims == 2:
             x = Conv2D(
                 filters=projection_dim,
                 kernel_size=7,
@@ -72,7 +80,7 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
                 groups=projection_dim,
                 name=name + "_depthwise_conv",
             )(x)
-        else:
+        elif dims == 3:
             x = Conv3D(
                 filters=projection_dim,
                 kernel_size=7,
