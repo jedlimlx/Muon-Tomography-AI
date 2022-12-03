@@ -242,7 +242,7 @@ def create_model(
         if params["dimensions"] == 3:
             outputs = Conv3D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
         else:
-            outputs = Conv2D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
+            outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
     elif params["task"] == "ct":
         inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
 
@@ -318,7 +318,8 @@ if __name__ == "__main__":
             "block_type": "convnext",
             "attention": "se",
             "initial_dimensions": 1,
-            "dimensions": 2
+            "dimensions": 2,
+            "final_activation": "linear"
         }
     )
 
