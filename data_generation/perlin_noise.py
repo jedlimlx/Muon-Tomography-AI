@@ -2,6 +2,46 @@ import tensorflow as tf
 import numpy as np
 
 
+"""
+Adapted from https://github.com/pvigier/perlin-numpy/blob/master/perlin_numpy/perlin2d.py
+"""
+
+
+def _f(t):
+    return t*t*t*(t*(t*6 - 15) + 10)
+
+
+def generate_perlin_noise_2d(batch_size, shape, res):
+    delta = (res[0] / shape[0], res[1] / shape[1])
+    d = (shape[0] // res[0], shape[1] // res[1])
+    grid = tf.meshgrid(tf.range(0, res[0], delta[0]),
+                       tf.range(0, res[1], delta[1]), indexing='ij')
+    grid = tf.stack(grid, axis=-1)
+    grid = grid - tf.floor(grid)
+    grid = tf.cast(grid, tf.float32)
+
+    angles = tf.random.uniform(shape=(batch_size, res[0] + 1, res[1] + 1), maxval=2 * np.pi)
+    gradients = tf.stack((tf.cos(angles), tf.sin(angles)), axis=-1)
+
+    print(d)
+
+    gradients = tf.repeat(tf.repeat(gradients, repeats=d[0], axis=1), repeats=d[1], axis=2)
+    g00 = gradients[:, :-d[0], :-d[1]]
+    g10 = gradients[:, d[0]:, :-d[1]]
+    g01 = gradients[:, :-d[0], d[1]:]
+    g11 = gradients[:, d[0]:, d[1]:]
+    # Ramps
+    n00 = tf.reduce_sum(tf.stack((grid[:, :, 0], grid[:, :, 1]), axis=-1) * g00, axis=3)
+    n10 = tf.reduce_sum(tf.stack((grid[:, :, 0] - 1, grid[:, :, 1]), axis=-1) * g10, axis=3)
+    n01 = tf.reduce_sum(tf.stack((grid[:, :, 0], grid[:, :, 1] - 1), axis=-1) * g01, axis=3)
+    n11 = tf.reduce_sum(tf.stack((grid[:, :, 0] - 1, grid[:, :, 1] - 1), axis=-1) * g11, axis=3)
+    # Interpolation
+    t = _f(grid)
+    n0 = n00 * (1 - t[:, :, 0]) + t[:, :, 0] * n10
+    n1 = n01 * (1 - t[:, :, 0]) + t[:, :, 0] * n11
+    return np.sqrt(2) * ((1 - t[:, :, 1]) * n0 + t[:, :, 1] * n1) + 0.5
+
+
 def generate_perlin_noise_3d(shape, res):
     """
     Generates 3D perlin noise image
@@ -13,9 +53,6 @@ def generate_perlin_noise_3d(shape, res):
         3D image
     """
 
-    def f(t_):
-        return 6 * t_ ** 5 - 15 * t_ ** 4 + 10 * t_ ** 3
-
     delta = (res[0] / shape[0], res[1] / shape[1], res[2] / shape[2])
     d = (shape[0] // res[0], shape[1] // res[1], shape[2] // res[2])
     grid = tf.meshgrid(tf.range(0, res[0], delta[0]),
@@ -24,7 +61,7 @@ def generate_perlin_noise_3d(shape, res):
     grid = tf.stack(grid, axis=-1)
     grid = grid - tf.floor(grid)
     grid = tf.cast(grid, tf.float32)
-    t = f(grid)
+    t = _f(grid)
     # Gradients
     theta = 2 * np.pi * tf.random.uniform(shape=[res[0], res[1] + 1, res[2] + 1])
     phi = 2 * np.pi * tf.random.uniform(shape=[res[0], res[1] + 1, res[2] + 1])
@@ -62,6 +99,21 @@ def generate_perlin_noise_3d(shape, res):
     return (1 - t[:, :, :, 2]) * n0 + t[:, :, :, 2] * n1 + 0.5
 
 
+@tf.function
+def generate_fractal_noise_2d(batch_size, shape, res, octaves=1, persistence=0.5):
+    noise = tf.zeros(shape=shape)
+    frequency = 1
+    amplitude = 1.0
+    scaling = 0
+    for _ in range(octaves):
+        scaling += amplitude
+        noise += amplitude * generate_perlin_noise_2d(batch_size, shape, (frequency * res[0], frequency * res[1]))
+        frequency *= 2
+        amplitude *= persistence
+
+    return noise * 0.5 / scaling
+
+
 def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
     """
     Generates Perlin noise of different frequencies
@@ -82,17 +134,15 @@ def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
         scaling += amplitude
         noise += amplitude * generate_perlin_noise_3d(shape,
                                                       (frequency * res[0], frequency * res[1], frequency * res[2]))
-        noise = tf.stop_gradient(noise)
         frequency *= 2
         amplitude *= persistence
 
     return noise * 0.5 / scaling
 
 
-# testing
-if __name__ == "__main__":
+def test():
     import matplotlib.pyplot as plt
-    img = generate_fractal_noise_3d([256, 256, 256], [2, 2, 2], octaves=3)
+    img = generate_fractal_noise_2d(8, [256, 256], [2, 2], octaves=2)
     print(tf.math.reduce_std(img), tf.math.reduce_mean(img))
     plt.imshow(img[0].numpy())
     plt.show()
