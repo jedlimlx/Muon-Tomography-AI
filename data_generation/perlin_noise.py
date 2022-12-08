@@ -142,7 +142,8 @@ def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
 
 def test():
     import matplotlib.pyplot as plt
-    img = generate_fractal_noise_2d(8, [256, 256], [2, 2], octaves=2)
-    print(tf.math.reduce_std(img), tf.math.reduce_mean(img))
+    from tqdm import tqdm
+    for i in tqdm(range(100)):
+        img = generate_fractal_noise_2d(64, [256, 256], [2, 2], octaves=2)
     plt.imshow(img[0].numpy())
     plt.show()

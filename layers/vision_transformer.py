@@ -52,7 +52,7 @@ def positional_encoding(position, d_model):
 
 
 class MLP(Layer):
-    def __init__(self, hidden_dim, out_dim, dropout_rate=0.1,
+    def __init__(self, hidden_dim, out_dim, dropout_rate=0.,
                  hidden_activation='gelu', out_activation='linear', name=None):
         """
         Represents the MLP used in vision transformers (2 dense layers)
@@ -69,6 +69,7 @@ class MLP(Layer):
         self.drop1 = Dropout(dropout_rate, name=f"{name}_dropout_0")
         self.dense2 = Dense(out_dim, out_activation, name=f"{name}_dense_1")
         self.drop2 = Dropout(dropout_rate, name=f"{name}_dropout_1")
+
 
     def call(self, inputs, *args, **kwargs):
         x = self.dense1(inputs)
@@ -91,7 +92,7 @@ class MLP(Layer):
 
 
 class EncoderBlock(Layer):
-    def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0.1, activation='gelu', name='vit_block',
+    def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., activation='gelu', name='vit_block',
                  norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
         super().__init__(name=name, **kwargs)
         self.norm1 = norm(name=f"{name}_norm_1")
@@ -156,15 +157,32 @@ class Patches(Layer):
 
 
 class PatchEncoder(Layer):
-    def __init__(self, num_patches, projection_dim, name=None):
+    def __init__(self, num_patches, projection_dim, embedding_type='sin_cos', name=None):
+        """
+        Projection and embedding
+        Args:
+            num_patches: Sequence length
+            projection_dim: Output dim after projection
+            embedding_type: Type of embedding used, 'sin_cos' or 'learned'
+            name: Name for this op
+        """
+        assert embedding_type in ['sin_cos', 'learned']  # error checking
         super(PatchEncoder, self).__init__(name=name)
         self.num_patches = num_patches
         self.projection = Dense(units=projection_dim)
-        self.position_embedding = Embedding(input_dim=num_patches, output_dim=projection_dim)
+        self.embedding_type = embedding_type
+        if embedding_type == 'learned':
+            self.position_embedding = Embedding(input_dim=num_patches, output_dim=projection_dim)
+        else:
+            self.position_embedding = positional_encoding(num_patches, projection_dim)
 
     def call(self, patch, **kwargs):
-        positions = tf.range(start=0, limit=self.num_patches, delta=1)
-        encoded = self.projection(patch) + self.position_embedding(positions)
+        if self.embedding_type == 'learned':
+            positions = tf.range(start=0, limit=self.num_patches, delta=1)
+            embedding = self.position_embedding(positions)
+        else:
+            embedding = self.position_embedding
+        encoded = self.projection(patch) + embedding
         return encoded
 
 
@@ -196,7 +214,7 @@ class PatchDecoder(Layer):
         # patches = self.mlp(encoded + self.positional_embedding)
         reshaped = tf.reshape(encoded, (-1, self.y_patches, self.x_patches, self.patch_height, self.patch_width))
         reshaped = tf.transpose(reshaped, [0, 1, 3, 2, 4])
-        reshaped = tf.reshape(reshaped, (-1, 256, 256, 1))
+        reshaped = tf.reshape(reshaped, (-1, self.y_patches * self.patch_height, self.x_patches * self.patch_width, 1))
 
         # Merging into final output
         # def func(x):
@@ -209,8 +227,8 @@ class PatchDecoder(Layer):
 
 def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
                  enc_mlp_units=512, enc_heads=16, dec_projection=True, dec_dim=256, dec_layers=8, dec_heads=16,
-                 dec_mlp_units=512, output_projection=True, output_patch_height=16, output_patch_width=16,
-                 output_x_patches=16, output_y_patches=16, dropout=0.1,
+                 dec_mlp_units=512, output_projection=False, output_patch_height=16, output_patch_width=16,
+                 output_x_patches=16, output_y_patches=16, dropout=0.,
                  activation='gelu', norm=partial(LayerNormalization, epsilon=1e-5)):
     # error checking
     if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
@@ -255,9 +273,9 @@ def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=25
     return Model(inputs=inputs, outputs=x)
 
 
-def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
-                enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
-                dec_mlp_units=512, output_projection=True, output_patch_height=16, output_patch_width=16,
+def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=512, enc_layers=8,
+                enc_mlp_units=2048, enc_heads=16, dec_dim=512, dec_layers=8, dec_heads=16,
+                dec_mlp_units=2048, output_projection=True, output_patch_height=16, output_patch_width=16,
                 output_x_patches=16, output_y_patches=16, dropout=0.1,
                 activation='gelu', norm=partial(LayerNormalization, epsilon=1e-5)):
     # error checking
