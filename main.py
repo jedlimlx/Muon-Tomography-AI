@@ -147,140 +147,6 @@ def round_repeats(repeats, depth_coefficient=1):
     return int(math.ceil(depth_coefficient * repeats))
 
 
-def create_model(
-        params,
-        optimizer="adam",
-        loss=binary_dice_coef_loss(),
-        weights=None
-):
-    if params["task"] == "sparse":
-        output_2d = []
-        output_3d = []
-        output_skip = []
-
-        inputs = Input(shape=params["shape"])
-        x = GaussianNoise(params["noise"])(inputs)
-
-        conv_1 = Conv1D if params["initial_dimensions"] == 1 else Conv2D
-        if params["block_type"] == "resnet" or params["block_type"] == "efficientnet":
-            x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
-            x = BatchNormalization(name="stem_batch_norm")(x)
-            x = Activation(params["activation"], name="stem_activation")(x)
-        elif params["block_type"] == "convnext":
-            x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
-            x = LayerNormalization(name="stem_layer_norm")(x)
-            x = Activation(params["activation"], name="stem_activation")(x)
-
-        # Downward 2D part of U-Net
-        for i in range(len(params["blocks"])):
-            x, conv = stack(
-                params["filters"][i],
-                params["blocks"][i],
-                name=f"stack_2d_{i}",
-                drop_connect_rate=params["drop_connect_rate"],
-                dropout_rate=params["dropout_rate"],
-                block_size=params["block_size"],
-                activation=params["activation"],
-                use_dropblock_2d=params["dropblock_2d"],
-                use_dropblock_3d=params["dropblock_3d"],
-                block_type=params["block_type"],
-                downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
-                attention=params["attention"],
-                dims=params["initial_dimensions"]
-            )(x)
-            output_2d.append(conv)
-            output_skip.append(
-                skip_connection_2d_to_3d(
-                    params["filters"][i],
-                    params["activation"],
-                    name=f"skip_connection_{i}",
-                    init_dims=params["initial_dimensions"],
-                    final_dims=params["dimensions"]
-                )(conv)
-            )
-
-        # Upward 2D / 3D part of U-Net
-        for i in range(len(params["blocks"]) - 1, -1, -1):
-            if i == len(params["blocks"]) - 1:
-                x = output_skip[i]
-            else:
-                x = Concatenate()([output_skip[i], x])
-
-                if params["dimensions"] == 3:
-                    x = Conv3D(
-                        params["filters"][i], 3,
-                        activation=params["activation"],
-                        name=f"stack_3d_{i}_reshape",
-                        padding="same"
-                    )(x)
-                else:
-                    x = Conv2D(
-                        params["filters"][i], 3,
-                        activation=params["activation"],
-                        name=f"stack_3d_{i}_reshape",
-                        padding="same"
-                    )(x)
-
-            x, conv = stack(
-                params["filters"][i],
-                params["blocks"][i],
-                dims=params["dimensions"],
-                name=f"stack_3d_{i}",
-                downsample=False,
-                drop_connect_rate=params["drop_connect_rate"],
-                dropout_rate=params["dropout_rate"],
-                block_size=params["block_size"],
-                activation=params["activation"],
-                use_dropblock_2d=params["dropblock_2d"],
-                use_dropblock_3d=params["dropblock_3d"],
-                block_type=params["block_type"],
-                downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
-                attention=params["attention"]
-            )(x)
-            output_3d.append(conv)
-
-        if params["dimensions"] == 3:
-            outputs = Conv3D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
-        else:
-            outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
-    elif params["task"] == "ct":
-        inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
-
-        # Creating and encoding patches
-        x = Patches(params["sinogram_width"], 1, name="extract_patches")(inputs)
-        x = PatchEncoder(params["num_sinograms"], params["projection_dims"], name="encode_patches")(x)
-
-        # Create multiple layers of the Transformer block.
-        for i in range(len(params["num_heads"])):
-            x = ViTBlock(
-                params["num_heads"][i],
-                params["projection_dims"],
-                params["transformer_units"][i],
-                name=f"block_{i}"
-            )(x)
-
-        # Creating the feature tensor
-        # x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
-        # x = Flatten()(x)
-        x = Dropout(params["dropout"], name="dropout")(x)
-        outputs = PatchDecoder(
-            params["patch_size"],
-            params["patch_size"],
-            int(params["num_patches"] ** 0.5),
-            int(params["num_patches"] ** 0.5),
-            params["projection_dims"],
-            params["decoder_units"],
-            name="patch_decoder"
-        )(x)
-
-    model = Model(inputs=inputs, outputs=outputs)
-    model.compile(optimizer=optimizer, loss=loss)
-    model.summary()
-
-    if weights is not None: model.load_weights(weights)
-    return model
-
-
 def plot_voxels(data1):
     ax = plt.figure().add_subplot(projection='3d')
     ax.voxels(data1)
@@ -301,11 +167,224 @@ def data_generator(directory=""):
     return detections_lst, voxels_lst
 
 
+def sam_train_step(self, data, rho=0.05, eps=1e-12):
+    # Unpack the data. Its structure depends on your model and
+    # on what you pass to `fit()`.
+    if len(data) == 3:
+        x, y, sample_weight = data
+    else:
+        sample_weight = None
+        x, y = data
+
+    with tf.GradientTape() as tape:
+        y_pred = self(x, training=True)  # Forward pass
+        # Compute the loss value
+        # (the loss function is configured in `compile()`)
+        loss = self.compiled_loss(y, y_pred, sample_weight=sample_weight, regularization_losses=self.losses)
+
+    # Compute gradients
+    trainable_vars = self.trainable_variables
+    gradients = tape.gradient(loss, trainable_vars)
+
+    # first step
+    e_ws = []
+    grad_norm = tf.linalg.global_norm(gradients)
+    ew_multiplier = rho / (grad_norm + eps)
+    for i in range(len(trainable_vars)):
+        e_w = tf.math.multiply(gradients[i], ew_multiplier)
+        trainable_vars[i].assign_add(e_w)
+        e_ws.append(e_w)
+
+    with tf.GradientTape() as tape:
+        y_pred = self(x, training=True)  # Forward pass
+        # Compute the loss value
+        # (the loss function is configured in `compile()`)
+        loss = self.compiled_loss(y, y_pred, sample_weight=sample_weight, regularization_losses=self.losses)
+
+    trainable_vars = self.trainable_variables
+    gradients = tape.gradient(loss, trainable_vars)
+
+    for i in range(len(trainable_vars)):
+        trainable_vars[i].assign_sub(e_ws[i])
+    self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+    # Update the metrics.
+    # Metrics are configured in `compile()`.
+    self.compiled_metrics.update_state(y, y_pred, sample_weight=sample_weight)
+
+    # Return a dict mapping metric names to current value.
+    # Note that it will include the loss (tracked in self.metrics).
+    return {m.name: m.result() for m in self.metrics}
+
+
+class TomographyModel(Model):
+    def __init__(self, params, **kwargs):
+        super(TomographyModel, self, **kwargs).__init__()
+
+        if params["task"] == "sparse":
+            output_2d = []
+            output_3d = []
+            output_skip = []
+
+            inputs = Input(shape=params["shape"])
+            x = GaussianNoise(params["noise"])(inputs)
+
+            conv_1 = Conv1D if params["initial_dimensions"] == 1 else Conv2D
+            if params["block_type"] == "resnet" or params["block_type"] == "efficientnet":
+                x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = BatchNormalization(name="stem_batch_norm")(x)
+                x = Activation(params["activation"], name="stem_activation")(x)
+            elif params["block_type"] == "convnext":
+                x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = LayerNormalization(name="stem_layer_norm")(x)
+                x = Activation(params["activation"], name="stem_activation")(x)
+
+            # Downward 2D part of U-Net
+            for i in range(len(params["blocks"])):
+                x, conv = stack(
+                    params["filters"][i],
+                    params["blocks"][i],
+                    name=f"stack_2d_{i}",
+                    drop_connect_rate=params["drop_connect_rate"],
+                    dropout_rate=params["dropout_rate"],
+                    block_size=params["block_size"],
+                    activation=params["activation"],
+                    use_dropblock_2d=params["dropblock_2d"],
+                    use_dropblock_3d=params["dropblock_3d"],
+                    block_type=params["block_type"],
+                    downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+                    attention=params["attention"],
+                    dims=params["initial_dimensions"]
+                )(x)
+                output_2d.append(conv)
+                output_skip.append(
+                    skip_connection_2d_to_3d(
+                        params["filters"][i],
+                        params["activation"],
+                        name=f"skip_connection_{i}",
+                        init_dims=params["initial_dimensions"],
+                        final_dims=params["dimensions"]
+                    )(conv)
+                )
+
+            # Upward 2D / 3D part of U-Net
+            for i in range(len(params["blocks"]) - 1, -1, -1):
+                if i == len(params["blocks"]) - 1:
+                    x = output_skip[i]
+                else:
+                    x = Concatenate()([output_skip[i], x])
+
+                    if params["dimensions"] == 3:
+                        x = Conv3D(
+                            params["filters"][i], 3,
+                            activation=params["activation"],
+                            name=f"stack_3d_{i}_reshape",
+                            padding="same"
+                        )(x)
+                    else:
+                        x = Conv2D(
+                            params["filters"][i], 3,
+                            activation=params["activation"],
+                            name=f"stack_3d_{i}_reshape",
+                            padding="same"
+                        )(x)
+
+                x, conv = stack(
+                    params["filters"][i],
+                    params["blocks"][i],
+                    dims=params["dimensions"],
+                    name=f"stack_3d_{i}",
+                    downsample=False,
+                    drop_connect_rate=params["drop_connect_rate"],
+                    dropout_rate=params["dropout_rate"],
+                    block_size=params["block_size"],
+                    activation=params["activation"],
+                    use_dropblock_2d=params["dropblock_2d"],
+                    use_dropblock_3d=params["dropblock_3d"],
+                    block_type=params["block_type"],
+                    downsample_filter=params["filters"][min(i + 1, len(params["filters"]) - 1)],
+                    attention=params["attention"]
+                )(x)
+                output_3d.append(conv)
+
+            if params["dimensions"] == 3:
+                outputs = Conv3D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
+            else:
+                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(
+                    output_3d[-1])
+        elif params["task"] == "ct":
+            inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
+
+            # Creating and encoding patches
+            x = Patches(params["sinogram_width"], 1, name="extract_patches")(inputs)
+            x = PatchEncoder(params["num_sinograms"], params["projection_dims"], name="encode_patches")(x)
+
+            # Create multiple layers of the Transformer block.
+            for i in range(len(params["num_heads"])):
+                x = ViTBlock(
+                    params["num_heads"][i],
+                    params["projection_dims"],
+                    params["transformer_units"][i],
+                    name=f"block_{i}"
+                )(x)
+
+            # Creating the feature tensor
+            # x = LayerNormalization(epsilon=1e-6, name="layer_norm")(x)
+            # x = Flatten()(x)
+            x = Dropout(params["dropout"], name="dropout")(x)
+            outputs = PatchDecoder(
+                params["patch_size"],
+                params["patch_size"],
+                int(params["num_patches"] ** 0.5),
+                int(params["num_patches"] ** 0.5),
+                params["projection_dims"],
+                params["decoder_units"],
+                name="patch_decoder"
+            )(x)
+
+        self.params = params
+        self.model = Model(inputs=inputs, outputs=outputs)
+
+    def call(self, inputs):
+        return self.model(inputs)
+
+    def flops(self):
+        return get_flops(model, [tf.zeros((1,) + self.params["shape"])])
+
+    def train_step(self, data):
+        if self.use_sam:
+            return sam_train_step(self, data, rho=self.params["rho"])
+        else:
+            return super().train_step(data)
+
+    def summary(self):
+        self.model.summary()
+
+    @staticmethod
+    def _gradients_order2_norm(gradients):
+        norm = tf.norm(tf.stack([tf.norm(grad) for grad in gradients if grad is not None]))
+        return norm
+
+
+def create_model(
+        params,
+        optimizer="adam",
+        loss=binary_dice_coef_loss(),
+        weights=None
+):
+    model = TomographyModel(params)
+    model.compile(optimizer=optimizer, loss=loss)
+    model.summary()
+
+    if weights is not None: model.load_weights(weights)
+    return model
+
+
 if __name__ == "__main__":
     model = create_model(
         {
             "task": "sparse",
-            "shape": (256, 256),
+            "shape": (64, 64, 6),
             "blocks": (1, 2, 2, 3, 4),
             "filters": (64, 64, 64, 64, 64),
             "activation": "swish",
@@ -317,11 +396,11 @@ if __name__ == "__main__":
             "dropblock_3d": False,
             "block_type": "convnext",
             "attention": "se",
-            "initial_dimensions": 1,
-            "dimensions": 2,
-            "final_activation": "linear"
+            "dimensions": 3,
+            "initial_dimensions": 2,
+            "final_activation": "sigmoid"
         }
     )
 
-    print(f"GFLOPS: {get_flops(model, [tf.zeros((1, 256, 256))])}")
+    print(f"GFLOPS: {model.flops()}")
 
