@@ -218,7 +218,7 @@ def sam_train_step(self, data, rho=0.05, eps=1e-12):
 
 
 class TomographyModel(Model):
-    def __init__(self, params, **kwargs):
+    def __init__(self, params, use_sam=True, **kwargs):
         super(TomographyModel, self, **kwargs).__init__()
 
         if params["task"] == "sparse":
@@ -343,6 +343,7 @@ class TomographyModel(Model):
             )(x)
 
         self.params = params
+        self.use_sam = use_sam
         self.model = Model(inputs=inputs, outputs=outputs)
 
     def call(self, inputs):
