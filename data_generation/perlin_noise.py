@@ -39,7 +39,7 @@ def generate_perlin_noise_2d(batch_size, shape, res):
     t = _f(grid)
     n0 = n00 * (1 - t[:, :, 0]) + t[:, :, 0] * n10
     n1 = n01 * (1 - t[:, :, 0]) + t[:, :, 0] * n11
-    return np.sqrt(2) * ((1 - t[:, :, 1]) * n0 + t[:, :, 1] * n1) + 0.5
+    return 6.21908435118 * ((1 - t[:, :, 1]) * n0 + t[:, :, 1] * n1)  # for a std dev of 1
 
 
 def generate_perlin_noise_3d(shape, res):
@@ -111,7 +111,7 @@ def generate_fractal_noise_2d(batch_size, shape, res, octaves=1, persistence=0.5
         frequency *= 2
         amplitude *= persistence
 
-    return noise * 0.5 / scaling
+    return noise / scaling
 
 
 def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
@@ -143,7 +143,12 @@ def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
 def test():
     import matplotlib.pyplot as plt
     from tqdm import tqdm
+    mean = []
+    std = []
     for i in tqdm(range(100)):
         img = generate_fractal_noise_2d(64, [256, 256], [2, 2], octaves=2)
+        mean.append(tf.reduce_mean(img).numpy())
+        std.append(tf.math.reduce_std(img).numpy())
+    print(np.mean(mean), np.mean(std))
     plt.imshow(img[0].numpy())
     plt.show()
