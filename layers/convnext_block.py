@@ -38,7 +38,15 @@ class LayerScale(Layer):
         return config
 
 
-def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=1e-6, activation="gelu", dims=2, name=None):
+def ConvNeXtBlock(
+        projection_dim,
+        drop_connect_rate=0.0,
+        layer_scale_init_value=1e-6,
+        activation="gelu",
+        kernel_size=7,
+        dims=2,
+        name=None
+):
     """ConvNeXt block.
     References:
       - https://arxiv.org/abs/2201.03545
@@ -55,6 +63,7 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
       layer_scale_init_value (float): Layer scale value. Should be a small float
         number.
       activation (string): activation function for the ConvNeXt block
+      kernel_size (int): kernel size of the convolution
       dims (int): Number of dimensions for the block. Either 2 or 3
       name: name to path to the keras layer.
     Returns:
@@ -67,7 +76,7 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
         if dims == 1:
             x = Conv1D(
                 filters=projection_dim,
-                kernel_size=7,
+                kernel_size=kernel_size,
                 padding="same",
                 groups=projection_dim,
                 name=name + "_depthwise_conv",
@@ -75,7 +84,7 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
         elif dims == 2:
             x = Conv2D(
                 filters=projection_dim,
-                kernel_size=7,
+                kernel_size=kernel_size,
                 padding="same",
                 groups=projection_dim,
                 name=name + "_depthwise_conv",
@@ -83,7 +92,7 @@ def ConvNeXtBlock(projection_dim, drop_connect_rate=0.0, layer_scale_init_value=
         elif dims == 3:
             x = Conv3D(
                 filters=projection_dim,
-                kernel_size=7,
+                kernel_size=kernel_size,
                 padding="same",
                 groups=projection_dim,
                 name=name + "_depthwise_conv",
