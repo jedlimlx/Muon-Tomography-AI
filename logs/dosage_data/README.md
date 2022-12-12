@@ -9,6 +9,7 @@
     "blocks": (1, 2, 2, 3, 4),
     "filters": (64, 64, 64, 64, 64),
     "activation": "swish",
+    "kernel_size": 7,
     "drop_connect_rate": 0.05,
     "dropout_rate": 0.05,
     "block_size": 10,
@@ -16,7 +17,7 @@
     "dropblock_2d": True,
     "dropblock_3d": False,
     "block_type": "convnext",
-    "attention": "se",
+    "attention": None,
     "dimensions": 3,
     "initial_dimensions": 2,
     "final_activation": "sigmoid"

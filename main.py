@@ -52,7 +52,7 @@ def stack(
         attention="se"
 ):
     def apply(x):
-        if block_type == "resnet" or dims == 3:
+        if block_type == "resnet":
             x = ResidualBlock(filters, name=name + "_block1", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
                               attention=attention)(x)
@@ -391,6 +391,7 @@ if __name__ == "__main__":
             "blocks": (1, 2, 2, 3, 4),
             "filters": (64, 64, 64, 64, 64),
             "activation": "swish",
+            "kernel_size": 7,
             "drop_connect_rate": 0.05,
             "dropout_rate": 0.05,
             "block_size": 10,
