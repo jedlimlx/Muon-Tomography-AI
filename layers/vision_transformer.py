@@ -1,8 +1,8 @@
 import tensorflow as tf
 import numpy as np
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 
 from functools import partial
 
@@ -70,7 +70,6 @@ class MLP(Layer):
         self.dense2 = Dense(out_dim, out_activation, name=f"{name}_dense_1")
         self.drop2 = Dropout(dropout_rate, name=f"{name}_dropout_1")
 
-
     def call(self, inputs, *args, **kwargs):
         x = self.dense1(inputs)
         x = self.drop1(x)
@@ -92,13 +91,16 @@ class MLP(Layer):
 
 
 class EncoderBlock(Layer):
-    def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., activation='gelu', name='vit_block',
-                 norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
+    def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., out_dim=None, activation='gelu',
+                 name='vit_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
         super().__init__(name=name, **kwargs)
+        if out_dim is None:
+            out_dim = dim
+
         self.norm1 = norm(name=f"{name}_norm_1")
         self.mhsa = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout, name=f"{name}_mha")
         self.norm2 = norm(name=f"{name}_norm_2")
-        self.mlp = MLP(hidden_dim=mlp_units, out_dim=dim, hidden_activation=activation, name=f"{name}_mlp")
+        self.mlp = MLP(hidden_dim=mlp_units, out_dim=out_dim, hidden_activation=activation, name=f"{name}_mlp")
 
     def call(self, inputs, **kwargs):
         x1 = self.norm1(inputs)
@@ -146,8 +148,8 @@ class Patches(Layer):
         batch_size = tf.shape(images)[0]
         patches = tf.image.extract_patches(
             images=images,
-            sizes=[1, self.patch_width, self.patch_height, 1],
-            strides=[1, self.patch_width, self.patch_height, 1],
+            sizes=[1, self.patch_height, self.patch_width, 1],
+            strides=[1, self.patch_height, self.patch_width, 1],
             rates=[1, 1, 1, 1],
             padding="VALID",
         )
@@ -223,6 +225,33 @@ class PatchDecoder(Layer):
         #     return x
 
         return reshaped
+
+
+def Transformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, dim=256, layers=16, num_heads=16,
+                mlp_units=512, output_patch_height=16, output_patch_width=16, output_x_patches=16, output_y_patches=16,
+                dropout=0., out_activation='linear', activation='gelu', norm=partial(LayerNormalization, epsilon=1e-5)):
+    # error checking
+    if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
+        raise ValueError("Cannot divide image into even patches")
+
+    num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
+
+    inputs = Input(shape=input_shape)
+
+    # patch
+    x = Patches(patch_height=sinogram_height, patch_width=sinogram_width, name="patchify")(inputs)
+    x = PatchEncoder(num_patches=num_patches, projection_dim=dim, name="projection")(x)
+
+    for i in range(layers):
+        x = EncoderBlock(num_heads=num_heads, mlp_units=mlp_units, dim=dim, dropout=dropout, activation=activation,
+                         norm=norm, name=f"block_{i}")(x)
+
+    x = Dense(output_patch_height * output_patch_width, activation=out_activation, name='out_projection')
+
+    # reshape
+    x = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(x)
+
+    return Model(inputs=inputs, outputs=x)
 
 
 def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
