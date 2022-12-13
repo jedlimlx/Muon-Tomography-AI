@@ -52,7 +52,7 @@ def stack(
         attention="se"
 ):
     def apply(x):
-        if block_type == "resnet" or dims == 3:
+        if block_type == "resnet":
             x = ResidualBlock(filters, name=name + "_block1", activation=activation,
                               drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
                               attention=attention)(x)
@@ -61,10 +61,10 @@ def stack(
                                   drop_connect_rate=drop_connect_rate, kernel_size=kernel_size, dims=dims,
                                   attention=attention)(x)
         elif block_type == "convnext":
-            x = ConvNeXtBlock(filters, name=name + "_block1", activation=activation,
+            x = ConvNeXtBlock(filters, name=name + "_block1", activation=activation, kernel_size=kernel_size,
                               drop_connect_rate=drop_connect_rate, dims=dims)(x)
             for i in range(2, blocks + 1):
-                x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation,
+                x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation, kernel_size=kernel_size,
                                   drop_connect_rate=drop_connect_rate, dims=dims)(x)
         elif block_type == "efficientnet":
             for i in range(1, blocks):
@@ -231,11 +231,11 @@ class TomographyModel(Model):
 
             conv_1 = Conv1D if params["initial_dimensions"] == 1 else Conv2D
             if params["block_type"] == "resnet" or params["block_type"] == "efficientnet":
-                x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same", name="stem")(x)
                 x = BatchNormalization(name="stem_batch_norm")(x)
                 x = Activation(params["activation"], name="stem_activation")(x)
             elif params["block_type"] == "convnext":
-                x = conv_1(params["filters"][0], 7, strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same", name="stem")(x)
                 x = LayerNormalization(name="stem_layer_norm")(x)
                 x = Activation(params["activation"], name="stem_activation")(x)
 
@@ -249,6 +249,7 @@ class TomographyModel(Model):
                     dropout_rate=params["dropout_rate"],
                     block_size=params["block_size"],
                     activation=params["activation"],
+                    kernel_size=params["kernel_size"],
                     use_dropblock_2d=params["dropblock_2d"],
                     use_dropblock_3d=params["dropblock_3d"],
                     block_type=params["block_type"],
@@ -299,6 +300,7 @@ class TomographyModel(Model):
                     dropout_rate=params["dropout_rate"],
                     block_size=params["block_size"],
                     activation=params["activation"],
+                    kernel_size=params["kernel_size"],
                     use_dropblock_2d=params["dropblock_2d"],
                     use_dropblock_3d=params["dropblock_3d"],
                     block_type=params["block_type"],
@@ -308,7 +310,7 @@ class TomographyModel(Model):
                 output_3d.append(conv)
 
             if params["dimensions"] == 3:
-                outputs = Conv3D(1, 3, padding="same", name="output", activation="sigmoid")(output_3d[-1])
+                outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
             else:
                 outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(
                     output_3d[-1])
@@ -389,6 +391,7 @@ if __name__ == "__main__":
             "blocks": (1, 2, 2, 3, 4),
             "filters": (64, 64, 64, 64, 64),
             "activation": "swish",
+            "kernel_size": 7,
             "drop_connect_rate": 0.05,
             "dropout_rate": 0.05,
             "block_size": 10,
