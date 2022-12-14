@@ -4,4 +4,4 @@ from layers.convnext_block import ConvNeXtBlock
 from layers.inverted_residual_block import MBConvBlock, FusedMBConvBlock
 from layers.vision_transformer import CTransformer, CTranslator, MLP, EncoderBlock, Patches, PatchEncoder, PatchDecoder
 from layers.regularisation import StochasticDepth, DropBlock1D, DropBlock2D, DropBlock3D
-from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule
+from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block

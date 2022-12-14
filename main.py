@@ -62,10 +62,10 @@ def stack(
                                   attention=attention)(x)
         elif block_type == "convnext":
             x = ConvNeXtBlock(filters, name=name + "_block1", activation=activation, kernel_size=kernel_size,
-                              drop_connect_rate=drop_connect_rate, dims=dims)(x)
+                              drop_connect_rate=drop_connect_rate, dims=dims, attention=attention)(x)
             for i in range(2, blocks + 1):
                 x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation, kernel_size=kernel_size,
-                                  drop_connect_rate=drop_connect_rate, dims=dims)(x)
+                                  drop_connect_rate=drop_connect_rate, dims=dims, attention=attention)(x)
         elif block_type == "efficientnet":
             for i in range(1, blocks):
                 x = MBConvBlock(filters, filters, name=name + "_block" + str(i), activation=activation,
@@ -399,7 +399,7 @@ if __name__ == "__main__":
             "dropblock_2d": True,
             "dropblock_3d": False,
             "block_type": "convnext",
-            "attention": "se",
+            "attention": "gc",
             "dimensions": 3,
             "initial_dimensions": 2,
             "final_activation": "sigmoid"

@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import *
 
 from layers.regularisation import StochasticDepth
+from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
 
 
 class LayerScale(Layer):
@@ -44,6 +45,7 @@ def ConvNeXtBlock(
         layer_scale_init_value=1e-6,
         activation="gelu",
         kernel_size=7,
+        attention="se",
         dims=2,
         name=None
 ):
@@ -65,10 +67,14 @@ def ConvNeXtBlock(
       activation (string): activation function for the ConvNeXt block
       kernel_size (int): kernel size of the convolution
       dims (int): Number of dimensions for the block. Either 2 or 3
+      attention (string): attention module to use
       name: name to path to the keras layer.
     Returns:
       A function representing a ConvNeXtBlock block.
     """
+
+    se_block = SqueezeAndExcite2D if dims == 2 else SqueezeAndExcite3D
+    cbam_block = SpatialAttentionModule
 
     def apply(inputs):
         x = inputs
@@ -109,6 +115,15 @@ def ConvNeXtBlock(
                 projection_dim,
                 name=name + "_layer_scale",
             )(x)
+
+        if attention is not None:
+            if attention == "se":
+                x = se_block(projection_dim, name=name + "_squeeze_exite")(x)
+            elif attention == "cbam":
+                x = cbam_block()(x)
+            elif attention == "gc":
+                x = global_context_block(x)
+
         if drop_connect_rate:
             layer = StochasticDepth(drop_connect_rate, name=name + "_stochastic_depth")
             return layer([inputs, x])
