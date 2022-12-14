@@ -246,7 +246,7 @@ def Transformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256
         x = EncoderBlock(num_heads=num_heads, mlp_units=mlp_units, dim=dim, dropout=dropout, activation=activation,
                          norm=norm, name=f"block_{i}")(x)
 
-    x = Dense(output_patch_height * output_patch_width, activation=out_activation, name='out_projection')
+    x = Dense(output_patch_height * output_patch_width, activation=out_activation, name='out_projection')(x)
 
     # reshape
     x = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(x)
