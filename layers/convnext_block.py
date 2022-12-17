@@ -3,6 +3,7 @@ from tensorflow.keras.layers import *
 
 from layers.regularisation import StochasticDepth
 from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
+from keras_cv_attention_models.attention_layers import mhsa_with_multi_head_relative_position_embedding
 
 
 class LayerScale(Layer):
@@ -123,6 +124,8 @@ def ConvNeXtBlock(
                 x = cbam_block()(x)
             elif attention == "gc":
                 x = global_context_block(x)
+            elif attention == "coatnet":
+                x = mhsa_with_multi_head_relative_position_embedding(x)
 
         if drop_connect_rate:
             layer = StochasticDepth(drop_connect_rate, name=name + "_stochastic_depth")
