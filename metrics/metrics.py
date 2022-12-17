@@ -30,6 +30,7 @@ class SSIM(tf.keras.metrics.Metric):
     def result(self):
         return self.sum / self.samples
 
+
 class PSNR(tf.keras.metrics.Metric):
     def __init__(self, d_range=None, rescaling=False, mean=None, std=None, **kwargs):
         super().__init__(**kwargs)

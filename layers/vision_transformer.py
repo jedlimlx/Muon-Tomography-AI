@@ -293,8 +293,7 @@ def CTransformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=25
 
     # output projection
     if output_projection:
-        x = PatchEncoder(num_patches=num_patches, projection_dim=output_patch_width * output_patch_height,
-                         name="output_projection")(x)
+        x = Dense(output_patch_height * output_patch_width, name='out_projection')(x)
 
     # reshape
     x = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(x)

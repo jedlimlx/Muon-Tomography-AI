@@ -143,12 +143,15 @@ def generate_fractal_noise_3d(shape, res, octaves=1, persistence=0.5):
 def test():
     import matplotlib.pyplot as plt
     from tqdm import tqdm
+    from data_generation import radon_parabeam
+    mx = []
+    mn = []
     mean = []
-    std = []
     for i in tqdm(range(100)):
-        img = generate_fractal_noise_2d(64, [256, 256], [2, 2], octaves=2)
+        img = generate_fractal_noise_2d(256, [256, 256], [2, 2], octaves=2) / 7 + 0.5
+        mx.append(tf.reduce_max(img).numpy())
+        mn.append(tf.reduce_min(img).numpy())
         mean.append(tf.reduce_mean(img).numpy())
-        std.append(tf.math.reduce_std(img).numpy())
-    print(np.mean(mean), np.mean(std))
+    print(np.max(mx), np.min(mn), np.mean(mean))
     plt.imshow(img[0].numpy())
     plt.show()
