@@ -124,7 +124,7 @@ def ConvNeXtBlock(
                 x = cbam_block()(x)
             elif attention == "gc":
                 x = global_context_block(x)
-            elif attention == "coatnet":
+            elif attention == "coatnet" and dims == 2:
                 x = mhsa_with_multi_head_relative_position_embedding(x)
 
         if drop_connect_rate:

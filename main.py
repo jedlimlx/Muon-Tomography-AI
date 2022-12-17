@@ -399,7 +399,7 @@ if __name__ == "__main__":
             "dropblock_2d": True,
             "dropblock_3d": False,
             "block_type": "convnext",
-            "attention": "gc",
+            "attention": "coatnet",
             "dimensions": 3,
             "initial_dimensions": 2,
             "final_activation": "sigmoid"
