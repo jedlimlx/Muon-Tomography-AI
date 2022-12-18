@@ -12,8 +12,8 @@ class SSIM(tf.keras.metrics.Mean):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         if self.rescaling:
-            y_true = y_true * self.std + self.mean
-            y_pred = y_pred * self.std + self.mean
+            y_true = tf.clip_by_value(y_true * self.std + self.mean, 0., 1.)
+            y_pred = tf.clip_by_value(y_pred * self.std + self.mean, 0., 1.)
 
         if self.d_range is None:
             d_range = tf.reduce_max(y_true, axis=(1, 2), keepdims=True) - \
@@ -44,8 +44,8 @@ class PSNR(tf.keras.metrics.Mean):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         if self.rescaling:
-            y_true = y_true * self.std + self.mean
-            y_pred = y_pred * self.std + self.mean
+            y_true = tf.clip_by_value(y_true * self.std + self.mean, 0., 1.)
+            y_pred = tf.clip_by_value(y_pred * self.std + self.mean, 0., 1.)
 
         if self.d_range is None:
             d_range = tf.reshape(tf.reduce_max(y_true, axis=(1, 2)) - tf.reduce_min(y_true, axis=(1, 2)), (-1,))
