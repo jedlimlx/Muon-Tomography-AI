@@ -1,6 +1,4 @@
 from tensorflow.keras.layers import *
-import inspect
-import sys
 
 
 def skip_connection_2d_to_3d(filters, activation="relu", name=None):
@@ -22,13 +20,3 @@ def skip_connection_2d_to_3d(filters, activation="relu", name=None):
         return x
 
     return apply
-
-
-def get_custom_objects():
-    clsmembers = inspect.getmembers(sys.modules['layers'], inspect.isclass)
-    clsmembers += inspect.getmembers(sys.modules['metrics'], inspect.isclass)
-    return clsmembers
-
-
-if __name__ == "__main__":
-    print(get_custom_objects())
