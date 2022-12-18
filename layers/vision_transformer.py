@@ -53,7 +53,7 @@ def positional_encoding(position, d_model):
 
 class MLP(Layer):
     def __init__(self, hidden_dim, out_dim, dropout_rate=0.,
-                 hidden_activation='gelu', out_activation='linear', name=None):
+                 hidden_activation='gelu', out_activation='linear', name=None, **kwargs):
         """
         Represents the MLP used in vision transformers (2 dense layers)
         Args:
@@ -64,7 +64,12 @@ class MLP(Layer):
             out_activation: activation for output layer (default 'linear')
             name: name of the layer
         """
-        super(MLP, self).__init__(name=name)
+        super(MLP, self).__init__(name=name, **kwargs)
+        self.hidden_dim = hidden_dim
+        self.out_dim = out_dim
+        self.dropout_rate = dropout_rate
+        self.hidden_activation = hidden_activation
+        self.out_activation = out_activation
         self.dense1 = Dense(hidden_dim, activation=hidden_activation, name=f"{name}_dense_0")
         self.drop1 = Dropout(dropout_rate, name=f"{name}_dropout_0")
         self.dense2 = Dense(out_dim, out_activation, name=f"{name}_dense_1")
@@ -76,6 +81,17 @@ class MLP(Layer):
         x = self.dense2(x)
         x = self.drop2(x)
         return x
+
+    def get_config(self):
+        cfg = super(MLP, self).get_config()
+        cfg.update({
+            'hidden_dim': self.hidden_dim,
+            'out_dim': self.out_dim,
+            'dropout_rate': self.dropout_rate,
+            'hidden_activation': self.hidden_activation,
+            'out_activation': self.out_activation
+        })
+        return cfg
 
 
 # def MLP(hidden_units, dropout_rate, activation='gelu', name=None):
@@ -97,6 +113,13 @@ class EncoderBlock(Layer):
         if out_dim is None:
             out_dim = dim
 
+        self.num_heads = num_heads
+        self.dim = dim
+        self.mlp_units = mlp_units
+        self.dropout = dropout
+        self.out_dim = out_dim
+        self.activation = activation
+
         self.norm1 = norm(name=f"{name}_norm_1")
         self.mhsa = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout, name=f"{name}_mha")
         self.norm2 = norm(name=f"{name}_norm_2")
@@ -110,11 +133,43 @@ class EncoderBlock(Layer):
         x3 = self.mlp(x3)
         return x2 + x3
 
+    @classmethod
+    def from_config(cls, config):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(EncoderBlock, self).get_config()
+        cfg.update({
+            'num_heads': self.num_heads,
+            'dim': self.dim,
+            'mlp_units': self.mlp_units,
+            'dropout': self.dropout,
+            'out_dim': self.out_dim,
+            'activation': self.activation,
+            'norm': serialize(self.norm1)
+        })
+
+        return cfg
+
 
 class DecoderBlock(Layer):
     def __init__(self, num_heads=16, enc_dim=256, dim=256, mlp_units=512, num_patches=256, dropout=0.1,
                  activation='gelu', name='decoder_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
         super().__init__(name=name, **kwargs)
+
+        self.num_heads = num_heads
+        self.enc_dim = enc_dim
+        self.dim = dim
+        self.mlp_units = mlp_units
+        self.num_patches = num_patches
+        self.dropout = dropout
+        self.activation = activation
+
         self.num_patches = num_patches
         self.norm1 = norm(name=f"{name}_norm_1")
         self.self_attention = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout,
@@ -137,10 +192,34 @@ class DecoderBlock(Layer):
         x4 = self.mlp(x3)
         return x4 + x3
 
+    @classmethod
+    def from_config(cls, config):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(DecoderBlock, self).get_config()
+        cfg.update({
+            'num_heads': self.num_heads,
+            'enc_dim': self.enc_dim,
+            'dim': self.dim,
+            'mlp_units': self.mlp_units,
+            'num_patches': self.num_patches,
+            'dropout': self.dropout,
+            'activation': self.activation,
+            'norm': serialize(self.norm1)
+        })
+
+        return cfg
+
 
 class Patches(Layer):
-    def __init__(self, patch_width, patch_height, name=None):
-        super(Patches, self).__init__(name=name)
+    def __init__(self, patch_width, patch_height, name=None, **kwargs):
+        super(Patches, self).__init__(name=name, **kwargs)
         self.patch_width = patch_width
         self.patch_height = patch_height
 
@@ -157,9 +236,18 @@ class Patches(Layer):
         patches = tf.reshape(patches, [batch_size, -1, patch_dims])
         return patches
 
+    def get_config(self):
+        cfg = super(Patches, self).get_config()
+        cfg.update({
+            'patch_width': self.patch_width,
+            'patch_height': self.patch_height
+        })
+
+        return cfg
+
 
 class PatchEncoder(Layer):
-    def __init__(self, num_patches, projection_dim, embedding_type='sin_cos', name=None):
+    def __init__(self, num_patches, projection_dim, embedding_type='sin_cos', name=None, **kwargs):
         """
         Projection and embedding
         Args:
@@ -169,10 +257,12 @@ class PatchEncoder(Layer):
             name: Name for this op
         """
         assert embedding_type in ['sin_cos', 'learned']  # error checking
-        super(PatchEncoder, self).__init__(name=name)
+        super(PatchEncoder, self).__init__(name=name, **kwargs)
         self.num_patches = num_patches
-        self.projection = Dense(units=projection_dim)
+        self.projection_dim = projection_dim
         self.embedding_type = embedding_type
+
+        self.projection = Dense(units=projection_dim)
         if embedding_type == 'learned':
             self.position_embedding = Embedding(input_dim=num_patches, output_dim=projection_dim)
         else:
@@ -187,10 +277,19 @@ class PatchEncoder(Layer):
         encoded = self.projection(patch) + embedding
         return encoded
 
+    def get_config(self):
+        cfg = super(PatchEncoder, self).get_config()
+        cfg.update({
+            'num_patches': self.num_patches,
+            'projection_dim': self.projection_dim,
+            'embedding_type': self.embedding_type
+        })
+        return cfg
+
 
 class PatchDecoder(Layer):
-    def __init__(self, patch_width, patch_height, x_patches, y_patches, name=None):
-        super(PatchDecoder, self).__init__(name=name)
+    def __init__(self, patch_width, patch_height, x_patches, y_patches, name=None, **kwargs):
+        super(PatchDecoder, self).__init__(name=name, **kwargs)
         self.patch_width = patch_width
         self.patch_height = patch_height
         self.x_patches = x_patches
@@ -225,6 +324,16 @@ class PatchDecoder(Layer):
         #     return x
 
         return reshaped
+
+    def get_config(self):
+        cfg = super(PatchDecoder, self).get_config()
+        cfg.update({
+            'patch_width': self.patch_width,
+            'patch_height': self.patch_height,
+            'x_patches': self.x_patches,
+            'y_patches': self.y_patches
+        })
+        return cfg
 
 
 def Transformer(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, dim=256, layers=16, num_heads=16,

@@ -1,3 +1,4 @@
 .idea
 data_generation/geant4/build
 data_generation/geant4/source/root
+/data/

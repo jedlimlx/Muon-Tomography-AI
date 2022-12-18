@@ -1,17 +1,14 @@
 import tensorflow as tf
 
 
-class SSIM(tf.keras.metrics.Metric):
-    def __init__(self, d_range=None, rescaling=False, mean=None, std=None, **kwargs):
-        super().__init__(**kwargs)
+class SSIM(tf.keras.metrics.Mean):
+    def __init__(self, d_range=None, rescaling=False, mean=None, std=None, name='ssim', **kwargs):
+        super(SSIM, self).__init__(name=name, **kwargs)
         self.shape = None
         self.d_range = d_range
         self.rescaling = rescaling
         self.mean = mean
         self.std = std
-
-        self.sum = self.add_weight('sum', initializer='zeros')
-        self.samples = self.add_weight('samples', initializer='zeros')
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         if self.rescaling:
@@ -24,24 +21,26 @@ class SSIM(tf.keras.metrics.Metric):
         else:
             d_range = self.d_range
 
-        self.sum.assign_add(tf.reduce_mean(tf.image.ssim(y_true, y_pred, d_range)))
-        self.samples.assign_add(1., tf.float32)
+        super(SSIM, self).update_state(tf.image.ssim(y_true, y_pred, d_range))
 
-    def result(self):
-        return self.sum / self.samples
+    def get_config(self):
+        cfg = super(SSIM, self).get_config()
+        cfg.update({
+            'd_range': self.d_range,
+            'rescaling': self.rescaling,
+            'mean': self.mean,
+            'std': self.std
+        })
+        return cfg
 
 
-class PSNR(tf.keras.metrics.Metric):
-    def __init__(self, d_range=None, rescaling=False, mean=None, std=None, **kwargs):
-        super().__init__(**kwargs)
-        self.shape = None
+class PSNR(tf.keras.metrics.Mean):
+    def __init__(self, d_range=None, rescaling=False, mean=None, std=None, name='psnr', **kwargs):
+        super(PSNR, self).__init__(name=name, **kwargs)
         self.d_range = d_range
         self.rescaling = rescaling
         self.mean = mean
         self.std = std
-
-        self.sum = self.add_weight('sum', initializer='zeros')
-        self.samples = self.add_weight('samples', initializer='zeros')
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         if self.rescaling:
@@ -53,8 +52,14 @@ class PSNR(tf.keras.metrics.Metric):
         else:
             d_range = self.d_range
 
-        self.sum.assign_add(tf.reduce_mean(tf.image.psnr(y_true, y_pred, d_range)))
-        self.samples.assign_add(1., tf.float32)
+        super(PSNR, self).update_state(tf.image.psnr(y_true, y_pred, d_range))
 
-    def result(self):
-        return self.sum / self.samples
+    def get_config(self):
+        cfg = super(PSNR, self).get_config()
+        cfg.update({
+            'd_range': self.d_range,
+            'rescaling': self.rescaling,
+            'mean': self.mean,
+            'std': self.std
+        })
+        return cfg
