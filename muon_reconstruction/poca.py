@@ -4,17 +4,28 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
-def plot_voxels(data1):
+def plot_voxels(data, colours=None):
     ax = plt.figure().add_subplot(projection='3d')
-    ax.voxels(data1)
+    if colours is None:
+        ax.voxels(data)
+    else:
+        ax.voxels(
+            data,
+            facecolors=colours,
+            edgecolors=np.clip(2*colours - 0.5, 0, 1)
+        )
+
     plt.show()
 
 
 # Basically find the point of closest approach of the incoming and outgoing rays
 # and denote that as were the muon scattered.
 # inputs [y, z, py/px, pz/px]
-def poca(inputs, outputs, size=(64, 64, 64)):
-    voxels = []
+def poca(inputs, outputs, resolution=64):
+    voxels = np.zeros((resolution, resolution, resolution), dtype=np.float)
+    voxels_2 = np.zeros((resolution, resolution, resolution), dtype=np.float)
+    n_voxels = np.ones((resolution, resolution, resolution), dtype=np.float)
+    n_voxels = 2 * n_voxels
     for i in range(len(inputs)):
         # define lines A and B by two points
         a0 = np.array([0, inputs[i, 0], inputs[i, 1]])
@@ -40,14 +51,19 @@ def poca(inputs, outputs, size=(64, 64, 64)):
 
         # add scattering density
         point = (a0 + sol[0] * a_hat + b0 + sol[1] * b_hat) / 2
-        if angle_scattered > 0.01 and 320 < point[0] < 340:
-            voxels.append(point)
+        if 335 < point[0] < 365 and -15 < point[1] < 15 and -15 < point[2] < 15:
+            pixel = np.floor((point - np.array([335, -15, -15])) / 30 * resolution).astype(np.int32)
+            pixel = tuple(pixel)
+            voxels[pixel] += angle_scattered
+            voxels_2[pixel] += angle_scattered ** 2
+            n_voxels[pixel] += 1
 
-    return voxels
+    result = 1 / (n_voxels - 1) * (voxels_2 - voxels ** 2 / n_voxels)
+    return result
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("run_0.csv")
+    df = pd.read_csv("run_12.csv")
     inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
                df["ver_pz"][x] / df["ver_px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10]
     outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
@@ -57,11 +73,15 @@ if __name__ == "__main__":
     outputs = np.array(outputs)
 
     result = poca(inputs, outputs)
+    colours = np.expand_dims(np.sqrt(np.sqrt(result)), axis=-1)
+    colours = np.repeat(colours, 3, axis=-1)
+    colours = 1 - colours / np.max(np.sqrt(np.sqrt(result)))
+    colours[:, :, :, 2] = 1
+    plot_voxels(result > 2e-6, colours)
 
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    ax.scatter([x[0] for x in result], [x[1] for x in result], [x[2] for x in result])
-    plt.show()
-
-    voxels = np.load("run_0.npy")
-    plot_voxels(voxels)
+    voxels = np.load("run_12.npy")
+    colours = np.expand_dims(voxels, axis=-1)
+    colours = np.repeat(colours, 3, axis=-1)
+    colours = 1 - colours / np.max(voxels)
+    colours[:, :, :, 2] = 1
+    plot_voxels(voxels > 3, colours)
