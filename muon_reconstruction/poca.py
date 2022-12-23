@@ -1,4 +1,5 @@
 import math
+import tqdm
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,16 +17,20 @@ def plot_voxels(data, colours=None):
         )
 
     plt.show()
+    plt.colorbar()
 
 
 # Basically find the point of closest approach of the incoming and outgoing rays
 # and denote that as were the muon scattered.
 # inputs [y, z, py/px, pz/px]
 def poca(inputs, outputs, resolution=64):
+    get_pixel = lambda x: np.floor((x - np.array([335, -15, -15])) / 30 * resolution).astype(np.int32)
+
     voxels = np.zeros((resolution, resolution, resolution), dtype=np.float)
     voxels_2 = np.zeros((resolution, resolution, resolution), dtype=np.float)
     n_voxels = np.ones((resolution, resolution, resolution), dtype=np.float)
     n_voxels = 2 * n_voxels
+
     for i in range(len(inputs)):
         # define lines A and B by two points
         a0 = np.array([0, inputs[i, 0], inputs[i, 1]])
@@ -52,18 +57,30 @@ def poca(inputs, outputs, resolution=64):
         # add scattering density
         point = (a0 + sol[0] * a_hat + b0 + sol[1] * b_hat) / 2
         if 335 < point[0] < 365 and -15 < point[1] < 15 and -15 < point[2] < 15:
-            pixel = np.floor((point - np.array([335, -15, -15])) / 30 * resolution).astype(np.int32)
-            pixel = tuple(pixel)
+            pixel = tuple(get_pixel(point))
             voxels[pixel] += angle_scattered
             voxels_2[pixel] += angle_scattered ** 2
-            n_voxels[pixel] += 1
+
+            # adding to voxels between initial point and scattering point
+            a0 = a0 + a_hat * (335 / a_hat[0])
+            grad = (point - a0) / (point[0] - a0[0])
+            for t in range(int((point[0] - a0[0]))):
+                try: n_voxels[tuple(get_pixel(a0 + grad * t))] += 1
+                except IndexError: break
+
+            # adding to voxels between scattering point and final point
+            b0 = b0 - b_hat * ((450 - 365) / b_hat[0])
+            grad = (b0 - point) / (b0[0] - point[0])
+            for t in range(int(b0[0] - point[0])):
+                try: n_voxels[tuple(get_pixel(point + grad * t))] += 1
+                except IndexError: break
 
     result = 1 / (n_voxels - 1) * (voxels_2 - voxels ** 2 / n_voxels)
     return result
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("run_12.csv")
+    df = pd.read_csv("run_5.csv")
     inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
                df["ver_pz"][x] / df["ver_px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10]
     outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
@@ -73,13 +90,13 @@ if __name__ == "__main__":
     outputs = np.array(outputs)
 
     result = poca(inputs, outputs)
-    colours = np.expand_dims(np.sqrt(np.sqrt(result)), axis=-1)
-    colours = np.repeat(colours, 3, axis=-1)
+    colours = np.expand_dims(result, axis=-1)
+    colours = np.repeat(np.sqrt(np.sqrt(colours)), 3, axis=-1)
     colours = 1 - colours / np.max(np.sqrt(np.sqrt(result)))
     colours[:, :, :, 2] = 1
-    plot_voxels(result > 2e-6, colours)
+    plot_voxels(result > 5e-6, colours)
 
-    voxels = np.load("run_12.npy")
+    voxels = np.load("run_5.npy")
     colours = np.expand_dims(voxels, axis=-1)
     colours = np.repeat(colours, 3, axis=-1)
     colours = 1 - colours / np.max(voxels)
