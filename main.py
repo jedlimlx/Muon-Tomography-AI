@@ -310,13 +310,9 @@ class TomographyModel(Model):
                 output_3d.append(conv)
 
             if params["dimensions"] == 3:
-                x = Conv3D(params["final_filters"], params["kernel_size"], padding="same", name="final",
-                           activation=params["activation"])(output_3d[-1])
-                outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(x)
+                outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
             else:
-                x = Conv2D(params["final_filters"], params["kernel_size"], padding="same", name="final",
-                           activation=params["activation"])(output_3d[-1])
-                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(x)
+                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
         elif params["task"] == "ct":
             inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
 

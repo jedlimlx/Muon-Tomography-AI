@@ -91,7 +91,7 @@ def thread(num, dose):
 
 
 if __name__ == "__main__":
-    for dose in [10000, 20000, 40000]:
+    for dose in [100, 200, 500, 700, 1000, 2000, 5000, 7000, 10000, 20000, 40000]:
         print(f"Running {dose} dose...")
 
         try: os.mkdir(f"{DIRECTORY}/detections_{dose}")
