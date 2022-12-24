@@ -312,8 +312,7 @@ class TomographyModel(Model):
             if params["dimensions"] == 3:
                 outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
             else:
-                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(
-                    output_3d[-1])
+                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
         elif params["task"] == "ct":
             inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
 
@@ -402,7 +401,8 @@ if __name__ == "__main__":
             "attention": "coatnet",
             "dimensions": 3,
             "initial_dimensions": 2,
-            "final_activation": "sigmoid"
+            "final_activation": "sigmoid",
+            "final_filters": 10
         }
     )
 
