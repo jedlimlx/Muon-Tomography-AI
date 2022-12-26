@@ -1,7 +1,10 @@
 import math
 import tqdm
+
 import numpy as np
 import pandas as pd
+import tensorflow as tf
+
 import skimage.measure
 
 import matplotlib
@@ -26,9 +29,9 @@ def plot_voxels(data, colours=None):
 # and denote that as were the muon scattered.
 # inputs [y, z, py/px, pz/px]
 def poca(inputs_all, outputs_all, resolution=8):
-    voxels = np.zeros((resolution, resolution, resolution), dtype=np.float)
-    voxels_2 = np.zeros((resolution, resolution, resolution), dtype=np.float)
-    n_voxels = np.ones((resolution, resolution, resolution), dtype=np.float)
+    voxels = np.zeros((resolution, resolution, resolution), dtype=np.float32)
+    voxels_2 = np.zeros((resolution, resolution, resolution), dtype=np.float32)
+    n_voxels = np.ones((resolution, resolution, resolution), dtype=np.float32)
     n_voxels = 2 * n_voxels
 
     for rotation in range(len(inputs_all)):
@@ -44,6 +47,7 @@ def poca(inputs_all, outputs_all, resolution=8):
         def get_pixel(x):
             def subroutine(x):
                 point = np.floor((x - np.array([335, -15, -15])) / 30 * resolution).astype(np.int32)
+                # point[2] = resolution - point[2] - 1
                 if rotation == 0: return point[0], point[1], point[2]
                 elif rotation == 1: return resolution - point[0] - 1, point[1], resolution - point[2] - 1
                 elif rotation == 2: return resolution - point[2] - 1, point[1], point[0]
@@ -102,8 +106,11 @@ def poca(inputs_all, outputs_all, resolution=8):
 
 if __name__ == "__main__":
     total_mse = 0
-    runs = 1
-    start = 173
+    total_ssim = 0
+    total_psnr = 0
+
+    runs = 128
+    start = 128
     for i in tqdm.trange(start, start + runs):
         index = i
 
@@ -112,9 +119,9 @@ if __name__ == "__main__":
         for rotation in range(6):  # loading inputs
             df = pd.read_csv(fr"D:/Muons Data/raw_detections/run_{index}_orient_{rotation}.csv")
             inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
-                       df["ver_pz"][x] / df["ver_px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10]
+                       df["ver_pz"][x] / df["ver_px"][x]] for x in range(1020) if df["ver_x"][x] < 10][:1000]
             outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
-                        df["pz"][x] / df["px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10]
+                        df["pz"][x] / df["px"][x]] for x in range(1020) if df["ver_x"][x] < 10][:1000]
 
             inputs = np.array(inputs)
             outputs = np.array(outputs)
@@ -126,7 +133,7 @@ if __name__ == "__main__":
         outputs_all = np.array(outputs_all)
 
         # running algorithm
-        result = 2 * poca(inputs_all, outputs_all)
+        result = poca(inputs_all, outputs_all)
 
         # loading ground truth
         voxels = np.load(f"D:/Muons Data/voxels/run_{index}.npy")
@@ -142,7 +149,22 @@ if __name__ == "__main__":
         mse = np.average((result - voxels) ** 2)
         total_mse += mse
 
+        # computing psnr
+        # print(np.expand_dims(voxels, axis=-1).shape)
+        psnr = tf.image.psnr(np.expand_dims(voxels, axis=-1), np.expand_dims(result, axis=-1), 3)
+        total_psnr += psnr
+
+        # computing ssim
+        # ssim = tf.image.ssim(tf.constant(voxels.astype(np.int32)), tf.constant(result.astype(np.int32)), 3)
+        # total_ssim += ssim
+
+        # print(f"MSE: {total_mse / (i - start + 1)}")
+        # print(f"PSNR: {total_psnr / (i - start + 1)}")
+        # print(f"SSIM: {total_ssim / (i - start + 1)}")
+
     print(f"MSE: {total_mse / runs}")
+    # print(f"PSNR: {total_psnr / runs}")
+    # print(f"SSIM: {total_ssim / runs}")
 
     # plotting graphs
     plt.imshow(result[:, 2, :])

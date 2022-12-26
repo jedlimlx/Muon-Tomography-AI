@@ -35,9 +35,9 @@ NUM_DET_PIXELS = 513
 # original ground truth and reconstruction image shape
 RECO_IM_SHAPE = (362, 362)
 # image shape for simulation
-IM_SHAPE = (1000, 1000)  # images will be scaled up from (362, 362)
+IM_SHAPE = (1000, 1000)  # randomly_masked_sinograms will be scaled up from (362, 362)
 
-# ~26cm x 26cm images
+# ~26cm x 26cm randomly_masked_sinograms
 MIN_PT = [-0.13, -0.13]
 MAX_PT = [0.13, 0.13]
 
