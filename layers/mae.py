@@ -215,6 +215,8 @@ class MAE(Model):
         loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
         loss_output = tf.gather(decoder_patches, mask_indices, axis=1, batch_dims=1)
 
+        self.compiled_loss(loss_patch, loss_output)
+
         self.compiled_metrics.update_state(loss_patch, loss_output)
 
         return {m.name: m.result() for m in self.metrics}
