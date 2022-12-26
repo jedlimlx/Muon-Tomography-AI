@@ -16,10 +16,12 @@ DIRECTORY = r"D:\Muons Data"
 def process(df, dose, write_path, name):
     run = False
     for i in range(20):
-        if not os.path.exists(f"{write_path}/{name[:-4]}_{i}.npy"):
+        if not os.path.exists(f"{write_path}/{name[:-4]}.npy"):
             run = True
 
     if not run: return
+
+    lst = []
 
     df = df[[x < dose for x in range(len(df))]]
     bins = np.arange(-12 * SCALE, 12 * SCALE + 12 * SCALE / RESOLUTION, 24 * SCALE / RESOLUTION)
@@ -33,7 +35,7 @@ def process(df, dose, write_path, name):
     output_df["y_cut"] = pd.cut(output_df["y"], bins=bins, right=False)
     output_df["z_cut"] = pd.cut(output_df["z"], bins=bins, right=False)
     pt = pd.pivot_table(output_df, columns="y_cut", index="z_cut", values="count", aggfunc="sum")
-    np.save(f"{write_path}/{name[:-4]}_0.npy", pt.values)
+    lst.append(pt.values)
 
     # Compute ith plane
     for j in range(1, 20):
@@ -51,7 +53,7 @@ def process(df, dose, write_path, name):
         df_2["y2_cut"] = pd.cut(df_2["y2"], bins=bins, right=False)
         df_2["z2_cut"] = pd.cut(df_2["z2"], bins=bins, right=False)
         pt = pd.pivot_table(df_2, columns="y2_cut", index="z2_cut", values="count", aggfunc="sum")
-        np.save(f"{write_path}/{name[:-4]}_{j}.npy", pt.values)
+        lst.append(pt.values)
 
     # Calculating input detector planes
     input_df = df[(df["particleID"] == 13) & (df["x"] > 150 * SCALE)][
@@ -62,7 +64,7 @@ def process(df, dose, write_path, name):
     input_df["y_cut"] = pd.cut(df["ver_y"], bins=bins, right=False)
     input_df["z_cut"] = pd.cut(df["ver_z"], bins=bins, right=False)
     pt = pd.pivot_table(input_df, columns="y_cut", index="z_cut", values="count", aggfunc="sum")
-    np.save(f"{write_path}/{name[:-4]}_0_input.npy", pt.values)
+    lst.append(pt.values)
 
     # Compute ith plane
     for j in range(1, 20):
@@ -79,7 +81,10 @@ def process(df, dose, write_path, name):
         df_2["y2_cut"] = pd.cut(df_2["y2"], bins=bins, right=False)
         df_2["z2_cut"] = pd.cut(df_2["z2"], bins=bins, right=False)
         pt = pd.pivot_table(df_2, columns="y2_cut", index="z2_cut", values="count", aggfunc="sum")
-        np.save(f"{write_path}/{name[:-4]}_{j}_input.npy", pt.values)
+        lst.append(pt.values)
+
+    lst = np.array(lst)
+    np.save(f"{write_path}/{name[:-4]}.npy", lst)
 
 
 def thread(num, dose):
@@ -87,14 +92,14 @@ def thread(num, dose):
         if f"orient_{num}" in csv:
             print(csv)
             df = pd.read_csv(f"{DIRECTORY}/raw_detections/{csv}")
-            process(df, dose, f"{DIRECTORY}/detections_{dose}", csv)
+            process(df, dose, f"C:/Users/jedli/Documents/data/detections_{dose}", csv)
 
 
 if __name__ == "__main__":
     for dose in [100, 200, 500, 700, 1000, 2000, 5000, 7000, 10000, 20000, 40000]:
         print(f"Running {dose} dose...")
 
-        try: os.mkdir(f"{DIRECTORY}/detections_{dose}")
+        try: os.mkdir(f"C:/Users/jedli/Documents/data/detections_{dose}")
         except Exception as e: print(e)
 
         t1 = threading.Thread(target=thread, args=(0, dose))
