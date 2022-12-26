@@ -38,7 +38,7 @@ class MAEPatchEncoder(Layer):
 
     def build(self, input_shape):
         _, depth, area = input_shape
-        self.mask_token = self.add_weight(shape=(1, area), initializer='random_uniform')
+        self.mask_token = self.add_weight(shape=(1, area), initializer='random_uniform', name=f'{self.name}_mask_token')
 
     def call(self, patch, mask_indices=None, unmask_indices=None, **kwargs):
         batch_size = tf.shape(patch)[0]
@@ -112,7 +112,7 @@ class MAE(Model):
                  enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
                  dec_mlp_units=512, dropout=0., activation='gelu', mask_ratio=0.75,
                  norm=partial(LayerNormalization, epsilon=1e-5), name='mae'):
-        super(MAE, self).__init__(name)
+        super(MAE, self).__init__(name=name)
 
         self.inp_shape = input_shape
         self.sinogram_height = sinogram_height
@@ -246,6 +246,7 @@ class MAE(Model):
             'mask_ratio': self.mask_ratio,
             'norm': serialize(self.enc_blocks[0].norm1)
         })
+        return cfg
 
 
 def downstream(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_projection=False,
@@ -294,3 +295,54 @@ def downstream(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp
     x = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches)(x)
 
     return Model(inputs=inputs, outputs=x)
+
+
+def main():
+    @tf.function
+    def transform(sinogram, gt):
+        rand_indices = tf.argsort(
+            tf.random.uniform(shape=(8, 1024)), axis=-1
+        )
+        mask_indices = rand_indices[:, : 768]
+        unmask_indices = rand_indices[:, 768:]
+        sinogram = tf.expand_dims(sinogram - 42.932495, -1) / 31.87962
+        sinogram = tf.image.resize(sinogram, (1024, 513))
+        gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
+        gt = tf.image.resize(gt, (512, 512))
+        return sinogram
+
+    feature_desc = {
+        'observation': tf.io.FixedLenFeature([], tf.string),
+        'ground_truth': tf.io.FixedLenFeature([], tf.string)
+    }
+
+    def _parse_example(example_proto):
+        res = tf.io.parse_single_example(example_proto, feature_desc)
+        observation = tf.io.parse_tensor(res['observation'], out_type=tf.float32)
+        ground_truth = tf.io.parse_tensor(res['ground_truth'], out_type=tf.float32)
+        observation.set_shape((1000, 513))
+        ground_truth.set_shape((362, 362))
+        return observation, ground_truth
+
+    train_ds = (tf.data.TFRecordDataset('../lodopab_full_dose_train.tfrecord')
+                .map(_parse_example)
+                .batch(8)
+                .prefetch(tf.data.AUTOTUNE)
+                .map(transform))
+
+    test_ds = (tf.data.TFRecordDataset('../lodopab_full_dose_validation.tfrecord')
+               .map(_parse_example)
+               .batch(8)
+               .prefetch(tf.data.AUTOTUNE)
+               .map(transform))
+
+    model = MAE(enc_layers=1, dec_layers=1, sinogram_width=513, sinogram_height=1, input_shape=(1024, 513, 1),
+                enc_dim=1024, enc_mlp_units=4096, dec_dim=513,
+                dec_mlp_units=2048)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5), loss='mse')
+    model.fit(train_ds, epochs=1, steps_per_epoch=1)
+    model.save('test_save')
+
+
+if __name__ == "__main__":
+    main()
