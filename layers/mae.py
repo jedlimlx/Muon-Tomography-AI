@@ -257,20 +257,21 @@ def downstream(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp
     input_shape = mae.inp_shape
     num_patches = mae.num_patches
 
-    inputs = [Input(input_shape), Input(num_mask), Input(num_patches - num_mask)]
+    inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32)]
     x, mask_indices, unmask_indices = inputs
 
     mae.patches.trainable = False
     x = mae.patches(x)
 
     mae.patch_encoder.trainable = False
+    mae.patch_encoder.num_mask = num_mask
     (
         unmasked_embeddings,
         masked_embeddings,
         unmasked_positions,
         mask_indices,
         unmask_indices,
-    ) = mae.patch_encoder(x)
+    ) = mae.patch_encoder(x, mask_indices, unmask_indices)
 
     # Pass the unmaksed patche to the encoder.
     encoder_outputs = unmasked_embeddings
