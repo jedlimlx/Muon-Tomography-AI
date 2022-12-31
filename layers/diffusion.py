@@ -12,7 +12,8 @@ def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_
     num_patches = mae.num_patches
 
     inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32),
-              Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1))]
+              Input((output_patch_height * output_y_patches,
+                     output_patch_width * output_x_patches, 1), dtype='float32')]
 
     x, mask_indices, unmask_indices, y = inputs
 
