@@ -105,67 +105,76 @@ def poca(inputs_all, outputs_all, resolution=8):
 
 
 if __name__ == "__main__":
-    total_mse = 0
-    total_ssim = 0
-    total_psnr = 0
+    dosages = [38000] # + [100, 200, 500, 700, 1000, 2000, 5000, 7000, 10000, 20000, 40000]
+    mses = []
 
-    runs = 128
-    start = 128
-    for i in tqdm.trange(start, start + runs):
-        index = i
+    for dose in dosages:
+        print(f"Running {dose}...")
 
-        inputs_all = []
-        outputs_all = []
-        for rotation in range(6):  # loading inputs
-            df = pd.read_csv(fr"D:/Muons Data/raw_detections/run_{index}_orient_{rotation}.csv")
-            inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
-                       df["ver_pz"][x] / df["ver_px"][x]] for x in range(1020) if df["ver_x"][x] < 10][:1000]
-            outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
-                        df["pz"][x] / df["px"][x]] for x in range(1020) if df["ver_x"][x] < 10][:1000]
+        total_mse = 0
+        total_ssim = 0
+        total_psnr = 0
 
-            inputs = np.array(inputs)
-            outputs = np.array(outputs)
+        runs = 128
+        start = 128
+        for i in tqdm.trange(start, start + runs):
+            index = i
 
-            inputs_all.append(inputs)
-            outputs_all.append(outputs)
+            inputs_all = []
+            outputs_all = []
+            for rotation in range(6):  # loading inputs
+                df = pd.read_csv(fr"D:/Muons Data/raw_detections/run_{index}_orient_{rotation}.csv")
+                inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
+                           df["ver_pz"][x] / df["ver_px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10][:dose]
+                outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
+                            df["pz"][x] / df["px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10][:dose]
 
-        inputs_all = np.array(inputs_all)
-        outputs_all = np.array(outputs_all)
+                inputs = np.array(inputs)
+                outputs = np.array(outputs)
 
-        # running algorithm
-        result = poca(inputs_all, outputs_all)
+                inputs_all.append(inputs)
+                outputs_all.append(outputs)
 
-        # loading ground truth
-        voxels = np.load(f"D:/Muons Data/voxels/run_{index}.npy")
-        voxels = skimage.measure.block_reduce(voxels, (8, 8, 8), np.max)
+            inputs_all = np.array(inputs_all)
+            outputs_all = np.array(outputs_all)
 
-        # voxels = np.rot90(voxels, 2, axes=(0, 2))
+            # running algorithm
+            result = poca(inputs_all, outputs_all)
 
-        radiation_lengths = [0, 1 / 1.757, 1 / 1.424, 1 / 1.206, 1 / 0.8543, 1 / 0.5612, 1 / 0.3344, 1 / 0.3166]
-        for k in range(1, len(radiation_lengths)):
-            voxels[voxels == k] = radiation_lengths[k]
+            # loading ground truth
+            voxels = np.load(f"D:/Muons Data/voxels/run_{index}.npy")
+            voxels = skimage.measure.block_reduce(voxels, (8, 8, 8), np.max)
 
-        # computing mse
-        mse = np.average((result - voxels) ** 2)
-        total_mse += mse
+            # voxels = np.rot90(voxels, 2, axes=(0, 2))
 
-        # computing psnr
-        # print(np.expand_dims(voxels, axis=-1).shape)
-        psnr = tf.image.psnr(np.expand_dims(voxels, axis=-1), np.expand_dims(result, axis=-1), 3)
-        total_psnr += psnr
+            radiation_lengths = [0, 1 / 1.757, 1 / 1.424, 1 / 1.206, 1 / 0.8543, 1 / 0.5612, 1 / 0.3344, 1 / 0.3166]
+            for k in range(1, len(radiation_lengths)):
+                voxels[voxels == k] = radiation_lengths[k]
 
-        # computing ssim
-        # ssim = tf.image.ssim(tf.constant(voxels.astype(np.int32)), tf.constant(result.astype(np.int32)), 3)
-        # total_ssim += ssim
+            # computing mse
+            mse = np.average((result - voxels) ** 2)
+            total_mse += mse
 
-        # print(f"MSE: {total_mse / (i - start + 1)}")
-        # print(f"PSNR: {total_psnr / (i - start + 1)}")
-        # print(f"SSIM: {total_ssim / (i - start + 1)}")
+            # computing psnr
+            # print(np.expand_dims(voxels, axis=-1).shape)
+            psnr = tf.image.psnr(np.expand_dims(voxels, axis=-1), np.expand_dims(result, axis=-1), 3)
+            total_psnr += psnr
 
-    print(f"MSE: {total_mse / runs}")
-    # print(f"PSNR: {total_psnr / runs}")
-    # print(f"SSIM: {total_ssim / runs}")
+            # computing ssim
+            # ssim = tf.image.ssim(tf.constant(voxels.astype(np.int32)), tf.constant(result.astype(np.int32)), 3)
+            # total_ssim += ssim
 
+            # print(f"MSE: {total_mse / (i - start + 1)}")
+            # print(f"PSNR: {total_psnr / (i - start + 1)}")
+            # print(f"SSIM: {total_ssim / (i - start + 1)}")
+
+        print(f"MSE: {total_mse / runs}")
+
+        mses.append(total_mse / runs)
+        # print(f"PSNR: {total_psnr / runs}")
+        # print(f"SSIM: {total_ssim / runs}")
+
+    """
     # plotting graphs
     plt.imshow(result[:, 2, :])
     plt.colorbar()
@@ -186,3 +195,4 @@ if __name__ == "__main__":
     colours = 1 - colours / np.max(voxels)
     colours[:, :, :, 2] = 1
     plot_voxels(voxels > 0, colours)
+    """
