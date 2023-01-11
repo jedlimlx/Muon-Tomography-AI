@@ -132,41 +132,6 @@ def stack(
     return apply
 
 
-def round_filters(filters, divisor=8, width_coefficient=1):
-    """Round number of filters based on depth multiplier."""
-    filters *= width_coefficient
-    new_filters = max(divisor, int(filters + divisor / 2) // divisor * divisor)
-    # Make sure that round down does not go down by more than 10%.
-    if new_filters < 0.9 * filters:
-        new_filters += divisor
-    return int(new_filters)
-
-
-def round_repeats(repeats, depth_coefficient=1):
-    """Round number of repeats based on depth multiplier."""
-    return int(math.ceil(depth_coefficient * repeats))
-
-
-def plot_voxels(data1):
-    ax = plt.figure().add_subplot(projection='3d')
-    ax.voxels(data1)
-    plt.show()
-
-
-def data_generator(directory=""):
-    voxels_lst = []
-    detections_lst = []
-    for i in range(1000):
-        detections = []
-        for j in range(6):
-            detections.append(np.expand_dims(np.load(f"{directory}/detections/{i}_orient_{j}.npy"), axis=-1))
-
-        detections_lst.append(np.concatenate(detections, axis=-1))
-        voxels_lst.append(np.expand_dims(np.load(f"{directory}/voxels/run_{i}.npy"), axis=-1))
-
-    return detections_lst, voxels_lst
-
-
 def sam_train_step(self, data, rho=0.05, eps=1e-12):
     # Unpack the data. Its structure depends on your model and
     # on what you pass to `fit()`.
