@@ -234,9 +234,27 @@ class SpatialAttentionModule(Layer):
         return multiply([x, input_tensor])
 
 
+def global_context_block(reduction_ratio=16, name=None):  # stopped being lazy and implemented it myself
+    def apply(x):
+        # Context Modelling
+        context = Dense(1, activation="softmax", name=f"{name}_context_conv1x1")(x)
+        context = Reshape((1, 1, x.shape[1] * x.shape[2]))(context)
+        context = Reshape((x.shape[1] * x.shape[2], x.shape[-1]))(context) * context
+
+        # Transform
+        transform = Dense(x.shape[-1] // reduction_ratio)(context)
+        transform = LayerNormalization(epsilon=1e-6, name=name + "_layernorm")(transform)
+        transform = Activation("swish")(transform)
+        transform = Dense(x.shape[-1] // reduction_ratio)(transform)
+
+        return x + transform
+
+    return apply
+
+
+"""
 # Stolen from https://github.com/titu1994/keras-global-context-networks/blob/master/gc.py
 def global_context_block(ip, reduction_ratio=16, transform_activation='linear'):
-    """
     Adds a Global Context attention block for self attention to the input tensor.
     Input tensor can be or rank 3 (temporal), 4 (spatial) or 5 (spatio-temporal).
     # Arguments:
@@ -252,7 +270,6 @@ def global_context_block(ip, reduction_ratio=16, transform_activation='linear'):
             to Keras.
     # Returns:
         a tensor of same shape as input
-    """
     channel_dim = -1
     ip_shape = ip.shape
 
@@ -285,7 +302,7 @@ def global_context_block(ip, reduction_ratio=16, transform_activation='linear'):
     else:
         flat_spatial_dim = 1
 
-    """ Context Modelling Block """
+    Context Modelling Block
     # [B, ***, C] or [B, C, ***]
     input_flat = _spatial_flattenND(ip, rank)
     # [B, ..., C] or [B, C, ...]
@@ -301,7 +318,7 @@ def global_context_block(ip, reduction_ratio=16, transform_activation='linear'):
     context = _spatial_expandND(context, rank)
     # [B, C, 1...] or [B, 1..., C]
 
-    """ Transform block """
+    Transform block
     # Transform bottleneck
     # [B, C // R, 1...] or [B, 1..., C // R]
     transform = _convND(context, rank, channels // reduction_ratio, kernel=1)
@@ -394,3 +411,4 @@ def _spatial_expandND(ip, rank):
         x = Reshape(shape)(ip)
 
     return x
+"""
