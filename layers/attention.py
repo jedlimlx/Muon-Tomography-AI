@@ -236,8 +236,6 @@ class SpatialAttentionModule(Layer):
 
 def global_context_block(reduction_ratio=16, name=None):  # stopped being lazy and implemented it myself
     def apply(x):
-        print(x.shape)
-
         # Context Modelling
         context = Dense(1, activation="softmax", name=f"{name}_context_conv1x1")(x)
         context = Reshape((1, 1, x.shape[1] * x.shape[2]), name=f"{name}_reshape_1")(context)
