@@ -236,16 +236,18 @@ class SpatialAttentionModule(Layer):
 
 def global_context_block(reduction_ratio=16, name=None):  # stopped being lazy and implemented it myself
     def apply(x):
+        print(x.shape)
+
         # Context Modelling
         context = Dense(1, activation="softmax", name=f"{name}_context_conv1x1")(x)
-        context = Reshape((1, 1, x.shape[1] * x.shape[2]))(context)
-        context = Reshape((x.shape[1] * x.shape[2], x.shape[-1]))(context) * context
+        context = Reshape((1, 1, x.shape[1] * x.shape[2]), name=f"{name}_reshape_1")(context)
+        context = dot([context, Reshape((x.shape[1] * x.shape[2], x.shape[-1]), name=f"{name}_reshape_2")(x)], axes=(3, 1))
 
         # Transform
-        transform = Dense(x.shape[-1] // reduction_ratio)(context)
-        transform = LayerNormalization(epsilon=1e-6, name=name + "_layernorm")(transform)
-        transform = Activation("swish")(transform)
-        transform = Dense(x.shape[-1] // reduction_ratio)(transform)
+        transform = Dense(x.shape[-1] // reduction_ratio, name=f"{name}_conv1x1_transform_1")(context)
+        transform = LayerNormalization(epsilon=1e-6, name=f"{name}_layernorm")(transform)
+        transform = Activation("swish", name=f"{name}_swish")(transform)
+        transform = Dense(x.shape[-1], name=f"{name}_conv1x1_transform_2")(transform)
 
         return x + transform
 
