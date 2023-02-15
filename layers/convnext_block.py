@@ -122,8 +122,8 @@ def ConvNeXtBlock(
                 x = se_block(projection_dim, name=name + "_squeeze_exite")(x)
             elif attention == "cbam":
                 x = cbam_block()(x)
-            elif attention == "gc":
-                x = global_context_block(x)
+            elif attention == "gc" and dims == 2:
+                x = global_context_block(name=f"{name}_gc")(x)
             elif attention == "coatnet" and dims == 2:
                 x = mhsa_with_multi_head_relative_position_embedding(x)
 
