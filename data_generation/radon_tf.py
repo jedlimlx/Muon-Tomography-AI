@@ -35,6 +35,11 @@ def radon_parabeam(img, num_angles, num_detectors, size):
     return tf.transpose(sinogram, (2, 0, 1)) * size * np.sqrt(2.0) / img_shape
 
 
+def fbp(inp, num_angles=1000, image_size=362, det_count=513, window=None, max_freq=0.6):
+    int(2 ** (2 * torch.tensor(det_count)).float().log2().ceil())
+
+
+
 def test():
     import matplotlib.pyplot as plt
     t = np.zeros((1, 256, 256))

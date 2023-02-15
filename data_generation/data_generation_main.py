@@ -58,8 +58,8 @@ def test():
         block = tf.clip_by_value(generate_fractal_noise_3d((256, 256, 256), res=(2, 2, 2), octaves=3), 0, 1).numpy()
         block = block * MU_MAX
         res = pool.map_async(renderer.render, block)
-        np.save(f"out/ground_truth/gt_{i}.npy", block)
+        # np.save(f"out/ground_truth/gt_{i}.npy", block)
         arr = res.get()
-        np.save(f"out/sinograms/sinogram_{i}.npy", np.array(arr) / (-MU_MAX))
+        # np.save(f"out/sinograms/sinogram_{i}.npy", np.array(arr) / (-MU_MAX))
     pool.close()
     pool.join()

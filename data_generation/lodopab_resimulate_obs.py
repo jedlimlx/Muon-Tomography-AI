@@ -62,7 +62,7 @@ space = odl.uniform_discr(min_pt=MIN_PT, max_pt=MAX_PT, shape=IM_SHAPE,
 reco_geometry = odl.tomo.parallel_beam_geometry(
     reco_space, num_angles=NUM_ANGLES, det_shape=(NUM_DET_PIXELS,))
 geometry = odl.tomo.parallel_beam_geometry(
-    space, num_angles=NUM_ANGLES, det_shape=(NUM_DET_PIXELS,))
+    space, num_angles=NUM_ANGLES, det_shape=NUM_DET_PIXELS)
 
 reco_ray_trafo = odl.tomo.RayTransform(reco_space, reco_geometry, impl=IMPL)
 ray_trafo = odl.tomo.RayTransform(space, geometry, impl=IMPL)
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     for part in ['train', 'validation', 'test']:
         gen = ground_truth_gen(part)
         n_files = ceil(LEN[part] / NUM_SAMPLES_PER_FILE)
-        for filenumber in tqdm(range(n_files), desc=part):
+        for filenumber in tqdm(range(2), desc=part):
             obs_filename = os.path.join(
                 PATH,
                 '{}_{}'.format(OBSERVATION_NAME, part),
