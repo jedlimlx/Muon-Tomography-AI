@@ -4,6 +4,7 @@ from tensorflow.keras.layers import *
 from functools import partial
 from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder
 from layers.utils import Cart2Polar, Polar2Cart
+from model import create_model
 
 
 def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
@@ -110,3 +111,42 @@ def CircleTransformer(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, 
     y = Polar2Cart(output_height, output_width)(y)
 
     return Model(inputs=inputs, outputs=y)
+
+
+def CircleUNet(input_shape=(362, 1000, 1), output_width=362, output_height=362):
+    inputs = Input(input_shape)
+
+    # Create the decoder inputs.
+    x = Cart2Polar(1024, 512)(inputs)
+
+    model = create_model(
+        {
+            "task": "sparse",
+            "shape": (1024, 512, 1),
+            "blocks": (1, 2, 2, 3, 4),
+            "filters": (64, 64, 64, 64, 64),
+            "activation": "swish",
+            "kernel_size": 7,
+            "drop_connect_rate": 0.05,
+            "dropout_rate": 0.05,
+            "block_size": 10,
+            "noise": 0.20,
+            "dropblock_3d": False,
+            "dropblock_2d": True,
+            "block_type": "convnext",
+            "attention": "gc",
+            "dimensions": 2,
+            "initial_dimensions": 2,
+            "final_activation": "linear",
+            "final_filters": 1
+        }
+    )
+    x = model(x)
+
+    x = Polar2Cart(output_height, output_width)(x)
+    return Model(inputs=inputs, outputs=x)
+
+
+if __name__ == "__main__":
+    model = CircleUNet(output_width=362, output_height=362)
+    model.summary()
