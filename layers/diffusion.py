@@ -2,22 +2,29 @@ import tensorflow as tf
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from functools import partial
-from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder
+
+from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, positional_encoding
 from layers.utils import Cart2Polar, Polar2Cart
+
 from model import create_model
 
 
-def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
-              output_patch_width=16, output_x_patches=16, output_y_patches=16,
-              norm=partial(LayerNormalization, epsilon=1e-5)):
+encodings = tf.constant(positional_encoding(10000, 256))[0]
+
+
+def DiffusionTransformer(
+        mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
+        output_patch_width=16, output_x_patches=16, output_y_patches=16,
+        norm=partial(LayerNormalization, epsilon=1e-5)
+):
     input_shape = mae.inp_shape
     num_patches = mae.num_patches
 
     inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32),
-              Input((output_patch_height * output_y_patches,
-                     output_patch_width * output_x_patches, 1), dtype='float32')]
+              Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
+              Input((dec_dim,), dtype=tf.float32)]
 
-    x, mask_indices, unmask_indices, y = inputs
+    x, mask_indices, unmask_indices, y, time_token = inputs
 
     mae.patches.trainable = False
     x = mae.patches(x)
@@ -49,8 +56,14 @@ def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_
     y = Patches(output_patch_width, output_patch_height, name='dec_patches')(y)
     y = PatchEncoder(output_y_patches * output_x_patches, dec_dim, embedding_type='learned', name='dec_projection')(y)
 
+    time_token = tf.expand_dims(time_token, axis=1)
+    print(y.shape)
+    print(time_token.shape)
+    y = concatenate([y, time_token], axis=1)
+    print(y.shape)
+
     for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches,
+        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches+1,
                          dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
 
     y = norm(name='output_norm')(y)
@@ -148,5 +161,7 @@ def CircleUNet(input_shape=(362, 1000, 1), output_width=362, output_height=362):
 
 
 if __name__ == "__main__":
-    model = CircleUNet(output_width=362, output_height=362)
+    from layers.mae import MAE
+
+    model = DenoiseCT(MAE())
     model.summary()
