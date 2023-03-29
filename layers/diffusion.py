@@ -61,6 +61,7 @@ def DiffusionTransformer(
     print(time_token.shape)
     y = concatenate([y, time_token], axis=1)
     print(y.shape)
+    print(x.shape)
 
     for i in range(dec_layers):
         y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches+1,
@@ -68,7 +69,8 @@ def DiffusionTransformer(
 
     y = norm(name='output_norm')(y)
     y = Dense(output_patch_height * output_patch_width, name='output_projection')(y)
-    y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches)(y)
+    y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
+                     ignore_last=True)(y)
 
     return Model(inputs=inputs, outputs=y)
 
@@ -163,5 +165,29 @@ def CircleUNet(input_shape=(362, 1000, 1), output_width=362, output_height=362):
 if __name__ == "__main__":
     from layers.mae import MAE
 
-    model = DenoiseCT(MAE())
+    mae = MAE(
+        enc_layers=4,
+        dec_layers=1,
+        sinogram_width=513,
+        sinogram_height=1,
+        input_shape=(1024, 513, 1),
+        enc_dim=512,
+        enc_mlp_units=2048,
+        dec_dim=512,
+        dec_mlp_units=2048
+    )
+
+    model = DiffusionTransformer(
+        mae,
+        num_mask=0,
+        dec_dim=256,
+        dec_mlp_units=1024,
+        dec_layers=4,
+        output_patch_width=16,
+        output_patch_height=16,
+        output_x_patches=32,
+        output_y_patches=32
+    )
     model.summary()
+
+    model([tf.zeros((1,1024,513,1)),tf.zeros((1,0)),tf.zeros((1,1024)),tf.zeros((1,512,512,1)),tf.zeros((1,256))])

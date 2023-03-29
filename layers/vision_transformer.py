@@ -290,12 +290,13 @@ class PatchEncoder(Layer):
 
 
 class PatchDecoder(Layer):
-    def __init__(self, patch_width, patch_height, x_patches, y_patches, name=None, **kwargs):
+    def __init__(self, patch_width, patch_height, x_patches, y_patches, ignore_last=False, name=None, **kwargs):
         super(PatchDecoder, self).__init__(name=name, **kwargs)
         self.patch_width = patch_width
         self.patch_height = patch_height
         self.x_patches = x_patches
         self.y_patches = y_patches
+        self.ignore_last = ignore_last
 
         # self.positional_embedding = Embedding(
         #     input_dim=self.x_patches * self.y_patches, output_dim=projection_dim
@@ -315,6 +316,7 @@ class PatchDecoder(Layer):
 
         # Extracting patches
         # patches = self.mlp(encoded + self.positional_embedding)
+        if self.ignore_last: encoded = encoded[:, :-1, :]
         reshaped = tf.reshape(encoded, (-1, self.y_patches, self.x_patches, self.patch_height, self.patch_width))
         reshaped = tf.transpose(reshaped, [0, 1, 3, 2, 4])
         reshaped = tf.reshape(reshaped, (-1, self.y_patches * self.patch_height, self.x_patches * self.patch_width, 1))
