@@ -1,10 +1,11 @@
-import math
-
 import tensorflow as tf
+
+keras = tf.keras
+
 import numpy as np
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 
 from functools import partial
 

@@ -1,6 +1,8 @@
 import tensorflow as tf
-from tensorflow.keras.models import *
-from tensorflow.keras.layers import *
+keras = tf.keras
+
+from keras.models import *
+from keras.layers import *
 from functools import partial
 
 from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, positional_encoding
@@ -13,9 +15,9 @@ encodings = tf.constant(positional_encoding(10000, 256))[0]
 
 
 def DiffusionTransformer(
-        mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
-        output_patch_width=16, output_x_patches=16, output_y_patches=16,
-        norm=partial(LayerNormalization, epsilon=1e-5)
+    mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
+    output_patch_width=16, output_x_patches=16, output_y_patches=16,
+    norm=partial(LayerNormalization, epsilon=1e-5)
 ):
     input_shape = mae.inp_shape
     num_patches = mae.num_patches

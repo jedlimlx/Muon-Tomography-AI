@@ -1,8 +1,10 @@
 from functools import partial
 
 import tensorflow as tf
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+keras = tf.keras
+
+from keras.layers import *
+from keras.models import *
 
 from layers.vision_transformer import Patches, positional_encoding, EncoderBlock, PatchDecoder, PatchEncoder
 

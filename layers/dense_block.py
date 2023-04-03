@@ -1,6 +1,9 @@
-from tensorflow.keras import backend
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+import tensorflow as tf
+keras = tf.keras
+
+from keras import backend
+from keras.layers import *
+from keras.models import *
 
 
 def DenseBlock(blocks, name=None, activation="relu"):
