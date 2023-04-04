@@ -46,7 +46,7 @@ def DiffusionTransformer(
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
-    else: time_token = Dense(dec_dim)(Dense(100, activation="gelu")(tt[:, 0]))
+    else: time_token = Dense(dec_dim)(Dense(100, activation="gelu")(tt))
 
     mae.patches.trainable = False
     x = mae.patches(x)
@@ -214,6 +214,6 @@ if __name__ == "__main__":
             tf.zeros((1, 0)),
             tf.zeros((1, 1024)),
             tf.zeros((1, 512, 512, 1)),
-            tf.zeros((1, 256))
+            tf.zeros((1, 1))
         ]
     )
