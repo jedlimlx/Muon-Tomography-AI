@@ -1,4 +1,7 @@
+import math
+
 import tensorflow as tf
+
 keras = tf.keras
 
 from keras.models import *
@@ -11,22 +14,39 @@ from layers.utils import Cart2Polar, Polar2Cart
 from model import create_model
 
 
-encodings = tf.constant(positional_encoding(10000, 256))[0]
+class TimeEmbedding(Layer):
+    def __init__(self, dim, **kwargs):
+        super().__init__(**kwargs)
+        self.dim = dim
+        self.half_dim = dim // 2
+        self.emb = math.log(10000) / (self.half_dim - 1)
+        self.emb = tf.exp(tf.range(self.half_dim, dtype=tf.float32) * -self.emb)
+
+    def call(self, inputs):
+        inputs = tf.cast(inputs, dtype=tf.float32)
+        emb = inputs[:, None] * self.emb[None, :]
+        emb = tf.concat([tf.sin(emb), tf.cos(emb)], axis=-1)
+        return emb
 
 
 def DiffusionTransformer(
     mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
     output_patch_width=16, output_x_patches=16, output_y_patches=16,
-    norm=partial(LayerNormalization, epsilon=1e-5)
+    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp"
 ):
     input_shape = mae.inp_shape
     num_patches = mae.num_patches
 
     inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32),
-              Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
-              Input((dec_dim,), dtype=tf.float32)]
+              Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1),
+                    dtype='float32'),
+              Input((1,), dtype=tf.float32)]
 
-    x, mask_indices, unmask_indices, y, time_token = inputs
+    x, mask_indices, unmask_indices, y, tt = inputs
+
+    if timestep_embedding == "sin-cos":
+        time_token = TimeEmbedding(dec_dim)(tt[:, 0])
+    else: time_token = Dense(dec_dim)(Dense(100, activation="gelu")(tt[:, 0]))
 
     mae.patches.trainable = False
     x = mae.patches(x)
@@ -59,14 +79,10 @@ def DiffusionTransformer(
     y = PatchEncoder(output_y_patches * output_x_patches, dec_dim, embedding_type='learned', name='dec_projection')(y)
 
     time_token = tf.expand_dims(time_token, axis=1)
-    print(y.shape)
-    print(time_token.shape)
     y = concatenate([y, time_token], axis=1)
-    print(y.shape)
-    print(x.shape)
 
     for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches+1,
+        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches + 1,
                          dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
 
     y = norm(name='output_norm')(y)
@@ -192,4 +208,12 @@ if __name__ == "__main__":
     )
     model.summary()
 
-    model([tf.zeros((1,1024,513,1)),tf.zeros((1,0)),tf.zeros((1,1024)),tf.zeros((1,512,512,1)),tf.zeros((1,256))])
+    model(
+        [
+            tf.zeros((1, 1024, 513, 1)),
+            tf.zeros((1, 0)),
+            tf.zeros((1, 1024)),
+            tf.zeros((1, 512, 512, 1)),
+            tf.zeros((1, 256))
+        ]
+    )
