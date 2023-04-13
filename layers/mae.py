@@ -164,6 +164,7 @@ class MAE(Model):
 
     def call(self, inputs, training=None, mask=None):
         patches = self.patches(inputs)
+
         # Encode the patches.
         (
             unmasked_embeddings,

@@ -35,14 +35,23 @@ def DiffusionTransformer(
     norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp"
 ):
     input_shape = mae.inp_shape
+    input_shape = (input_shape[0] - 1, input_shape[1], input_shape[2])
+
     num_patches = mae.num_patches
 
-    inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32),
+    inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask - 1, dtype=tf.int32),
               Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1),
                     dtype='float32'),
               Input((1,), dtype=tf.float32)]
 
     x, mask_indices, unmask_indices, y, tt = inputs
+
+    x = concatenate(
+        [
+            x,
+            tf.expand_dims(tf.expand_dims(TimeEmbedding(input_shape[1]+2)(tt[:, 0])[:, :-1], axis=-1), axis=1)
+        ], axis=1
+    )
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
@@ -61,7 +70,7 @@ def DiffusionTransformer(
         unmask_indices,
     ) = mae.patch_encoder(x, mask_indices, unmask_indices)
 
-    # Pass the unmaksed patche to the encoder.
+    # Pass the unmasked patches to the encoder.
     encoder_outputs = unmasked_embeddings
 
     for enc_block in mae.enc_blocks:
@@ -73,7 +82,7 @@ def DiffusionTransformer(
 
     # Create the decoder inputs.
     encoder_outputs = encoder_outputs + unmasked_positions
-    x = tf.concat([encoder_outputs, masked_embeddings], axis=1)
+    x = tf.concat([encoder_outputs, masked_embeddings], axis=1)[:, :-1]
 
     y = Patches(output_patch_width, output_patch_height, name='dec_patches')(y)
     y = PatchEncoder(output_y_patches * output_x_patches, dec_dim, embedding_type='learned', name='dec_projection')(y)
@@ -82,7 +91,7 @@ def DiffusionTransformer(
     y = concatenate([y, time_token], axis=1)
 
     for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches + 1,
+        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches,
                          dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
 
     y = norm(name='output_norm')(y)
@@ -188,7 +197,7 @@ if __name__ == "__main__":
         dec_layers=1,
         sinogram_width=513,
         sinogram_height=1,
-        input_shape=(1024, 513, 1),
+        input_shape=(1025, 513, 1),
         enc_dim=512,
         enc_mlp_units=2048,
         dec_dim=512,
