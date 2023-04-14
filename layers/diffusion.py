@@ -78,7 +78,7 @@ def DiffusionTransformer(
     x = concatenate(
         [
             x,
-            tf.expand_dims(tf.expand_dims(TimeEmbedding(input_shape[1] + 2)(tt[:, 0])[:, :-1], axis=-1), axis=1)
+            tf.expand_dims(TimeEmbedding(input_shape[1])(tt[:, 0]), axis=1)
         ], axis=1
     )
 
@@ -89,7 +89,7 @@ def DiffusionTransformer(
     y = concatenate([y, time_token], axis=1)
 
     for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches,
+        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches + 1,
                          dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
 
     y = norm(name='output_norm')(y)
