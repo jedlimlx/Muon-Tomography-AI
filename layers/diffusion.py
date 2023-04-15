@@ -8,10 +8,96 @@ from keras.models import *
 from keras.layers import *
 from functools import partial
 
-from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, positional_encoding
+from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP
 from layers.utils import Cart2Polar, Polar2Cart
 
 from model import create_model
+
+
+class DiTBlock(Layer):
+    def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., out_dim=None, activation='gelu',
+                 name='vit_block', norm=partial(LayerNormalization, epsilon=1e-5), zero_init=False, **kwargs):
+        super().__init__(name=name, **kwargs)
+        if out_dim is None:
+            out_dim = dim
+
+        self.num_heads = num_heads
+        self.dim = dim
+        self.mlp_units = mlp_units
+        self.dropout = dropout
+        self.out_dim = out_dim
+        self.activation = activation
+        self.zero_init = zero_init
+
+        self.norm1 = norm(name=f"{name}_norm_1")
+        self.mhsa = MultiHeadAttention(num_heads=num_heads, key_dim=dim, dropout=dropout, name=f"{name}_mha")
+        self.norm2 = norm(name=f"{name}_norm_2")
+        self.mlp = MLP(hidden_dim=mlp_units, out_dim=out_dim, hidden_activation=activation, name=f"{name}_mlp")
+
+        # idk why the swish comes first, ask https://github.com/facebookresearch/DiT/blob/main/models.py
+        self.flatten = Flatten()
+        if self.zero_init:
+            self.adaln = Sequential([
+                Activation("swish"),
+                Dense(6 * out_dim, kernel_initializer=tf.keras.initializers.Zeros())
+            ])
+        else:
+            self.adaln = Sequential([
+                Activation("swish"),
+                Dense(6 * out_dim)
+            ])
+
+    def modulate(self, x, shift, scale):
+        return x * (1 + tf.expand_dims(scale, axis=1)) + tf.expand_dims(shift, axis=1)
+
+    def call(self, inputs, **kwargs):
+        x, c = inputs  # split into conditioning the actual thing
+
+        # adaln stuff
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = tf.split(self.adaln(c), 6, axis=1)
+
+        # transformer stuff
+        if self.zero_init:
+            x1 = self.norm1(x)
+            x1 = self.modulate(x1, shift_msa, scale_msa)
+            attn = self.mhsa(x1, x1)
+            x2 = attn * tf.expand_dims(gate_msa, axis=1) + x1
+            x3 = self.norm2(x2)
+            x3 = self.modulate(x3, shift_mlp, scale_mlp)
+            x3 = self.mlp(x3)
+            return x2 + x3 * tf.expand_dims(gate_mlp, axis=1)
+        else:
+            x1 = self.norm1(x)
+            x1 = self.modulate(x1, shift_msa, scale_msa)
+            attn = self.mhsa(x1, x1)
+            x2 = attn + x1
+            x3 = self.norm2(x2)
+            x3 = self.modulate(x3, shift_mlp, scale_mlp)
+            x3 = self.mlp(x3)
+            return x2 + x3
+
+    @classmethod
+    def from_config(cls, config):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(DiTBlock, self).get_config()
+        cfg.update({
+            'num_heads': self.num_heads,
+            'dim': self.dim,
+            'mlp_units': self.mlp_units,
+            'dropout': self.dropout,
+            'out_dim': self.out_dim,
+            'activation': self.activation,
+            'norm': serialize(self.norm1)
+        })
+
+        return cfg
 
 
 class TimeEmbedding(Layer):
@@ -32,7 +118,7 @@ class TimeEmbedding(Layer):
 def DiffusionTransformer(
     mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
     output_patch_width=16, output_x_patches=16, output_y_patches=16,
-    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp"
+    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp", conditioning="cross-attention"
 ):
     input_shape = mae.inp_shape
 
@@ -77,8 +163,8 @@ def DiffusionTransformer(
     x = tf.concat([encoder_outputs, masked_embeddings], axis=1)
     x = concatenate(
         [
-            x,
-            tf.expand_dims(TimeEmbedding(input_shape[1])(tt[:, 0]), axis=1)
+            GlobalAveragePooling1D()(x),
+            TimeEmbedding(input_shape[1])(tt[:, 0])
         ], axis=1
     )
 
@@ -88,9 +174,17 @@ def DiffusionTransformer(
     time_token = tf.expand_dims(time_token, axis=1)
     y = concatenate([y, time_token], axis=1)
 
-    for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches + 1,
-                         dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
+    if conditioning == "cross-attention":
+        for i in range(dec_layers):
+            y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches + 1,
+                             dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
+    elif conditioning == "adaln" or conditioning == "adaln-zero":
+        for i in range(dec_layers):
+            y = DiTBlock(
+                dec_heads, dec_dim, mlp_units=dec_mlp_units,
+                dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dit_block_{i}',
+                zero_init=conditioning == "adaln-zero"
+            )((y, x))
 
     y = norm(name='output_norm')(y)
     y = Dense(output_patch_height * output_patch_width, name='output_projection')(y)
@@ -211,7 +305,8 @@ if __name__ == "__main__":
         output_patch_width=16,
         output_patch_height=16,
         output_x_patches=32,
-        output_y_patches=32
+        output_y_patches=32,
+        conditioning="adaln-zero"
     )
     model.summary()
 
