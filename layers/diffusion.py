@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import tensorflow as tf
 
 keras = tf.keras
@@ -8,10 +9,9 @@ from keras.models import *
 from keras.layers import *
 from functools import partial
 
-from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP
-from layers.utils import Cart2Polar, Polar2Cart
+from tqdm import tqdm
 
-from model import create_model
+from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP
 
 
 class DiTBlock(Layer):
@@ -118,16 +118,19 @@ class TimeEmbedding(Layer):
 def DiffusionTransformer(
     mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
     output_patch_width=16, output_x_patches=16, output_y_patches=16,
-    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp", conditioning="cross-attention"
+    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp",
+    conditioning="cross-attention", covariance="learned"
 ):
     input_shape = mae.inp_shape
 
     num_patches = mae.num_patches
 
-    inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches, dtype=tf.int32),
-              Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1),
-                    dtype='float32'),
-              Input((1,), dtype=tf.float32)]
+    inputs = [
+        Input(input_shape), Input(num_mask, dtype=tf.int32),
+        Input(num_patches, dtype=tf.int32),
+        Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
+        Input((1,), dtype=tf.float32)
+    ]
 
     x, mask_indices, unmask_indices, y, tt = inputs
 
@@ -161,12 +164,20 @@ def DiffusionTransformer(
     # Create the decoder inputs.
     encoder_outputs = encoder_outputs + unmasked_positions
     x = tf.concat([encoder_outputs, masked_embeddings], axis=1)
-    x = concatenate(
-        [
-            GlobalAveragePooling1D()(x),
-            TimeEmbedding(input_shape[1])(tt[:, 0])
-        ], axis=1
-    )
+    if conditioning == "adaln" or conditioning == "adaln-zero":
+        x = concatenate(
+            [
+                GlobalAveragePooling1D()(x),
+                TimeEmbedding(input_shape[1])(tt[:, 0])
+            ], axis=1
+        )
+    elif conditioning == "cross-attention":
+        x = concatenate(
+            [
+                x,
+                TimeEmbedding(input_shape[1])(tt[:, 0])
+            ], axis=1
+        )
 
     y = Patches(output_patch_width, output_patch_height, name='dec_patches')(y)
     y = PatchEncoder(output_y_patches * output_x_patches, dec_dim, embedding_type='learned', name='dec_projection')(y)
@@ -187,98 +198,319 @@ def DiffusionTransformer(
             )((y, x))
 
     y = norm(name='output_norm')(y)
-    y = Dense(output_patch_height * output_patch_width, name='output_projection')(y)
+    y = Dense(output_patch_height * output_patch_width * (2 if covariance == "learned" else 1), name='output_projection')(y)
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
-                     ignore_last=True)(y)
+                     ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
-    return Model(inputs=inputs, outputs=y)
-
-
-def CircleTransformer(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512,
-                      output_width=362, output_height=362, norm=partial(LayerNormalization, epsilon=1e-5)):
-    input_shape = mae.inp_shape
-    num_patches = mae.num_patches
-
-    inputs = [Input(input_shape), Input(num_mask, dtype=tf.int32), Input(num_patches - num_mask, dtype=tf.int32),
-              Input((output_height, output_width, 1), dtype='float32')]
-
-    x, mask_indices, unmask_indices, y = inputs
-
-    mae.patches.trainable = False
-    x = mae.patches(x)
-
-    mae.patch_encoder.trainable = False
-    mae.patch_encoder.num_mask = num_mask
-    (
-        unmasked_embeddings,
-        masked_embeddings,
-        unmasked_positions,
-        mask_indices,
-        unmask_indices,
-    ) = mae.patch_encoder(x, mask_indices, unmask_indices)
-
-    # Pass the unmaksed patche to the encoder.
-    encoder_outputs = unmasked_embeddings
-
-    for enc_block in mae.enc_blocks:
-        enc_block.trainable = False
-        encoder_outputs = enc_block(encoder_outputs)
-
-    mae.enc_norm.trainable = False
-    encoder_outputs = mae.enc_norm(encoder_outputs)
-
-    # Create the decoder inputs.
-    encoder_outputs = encoder_outputs + unmasked_positions
-    x = tf.concat([encoder_outputs, masked_embeddings], axis=1)
-
-    y = Cart2Polar(num_patches, dec_dim)(y)
-    y = tf.reshape(y, (-1, num_patches, dec_dim))
-    y = PatchEncoder(num_patches, dec_dim, embedding_type='learned', name='dec_projection')(y)
-
-    for i in range(dec_layers):
-        y = DecoderBlock(dec_heads, mae.enc_dim, dec_dim, mlp_units=dec_mlp_units, num_patches=num_patches,
-                         dropout=mae.dropout, activation=mae.activation, norm=norm, name=f'dec_block_{i}')((y, x))
-
-    y = norm(name='output_norm')(y)
-    y = Dense(dec_dim, name='output_projection')(y)
-    y = tf.expand_dims(y, -1)
-    y = Polar2Cart(output_height, output_width)(y)
-
-    return Model(inputs=inputs, outputs=y)
+    return Model(inputs=inputs, outputs=[y, tt])
 
 
-def CircleUNet(input_shape=(362, 1000, 1), output_width=362, output_height=362):
-    inputs = Input(input_shape)
+class DiffusionModel(Model):
+    """
+    Implements a diffusion model for solving linear inverse problems
+    """
+    def __init__(self, model, timesteps=1000, covariance="fixed", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.timesteps = timesteps
+        self.covariance = covariance
 
-    # Create the decoder inputs.
-    x = Cart2Polar(1024, 512)(inputs)
+        self.model = model
 
-    model = create_model(
-        {
-            "task": "sparse",
-            "shape": (1024, 512, 1),
-            "blocks": (1, 2, 2, 3, 4),
-            "filters": (64, 64, 64, 64, 64),
-            "activation": "swish",
-            "kernel_size": 7,
-            "drop_connect_rate": 0.05,
-            "dropout_rate": 0.05,
-            "block_size": 10,
-            "noise": 0.20,
-            "dropblock_3d": False,
-            "dropblock_2d": True,
-            "block_type": "convnext",
-            "attention": "gc",
-            "dimensions": 2,
-            "initial_dimensions": 2,
-            "final_activation": "linear",
-            "final_filters": 1
-        }
-    )
-    x = model(x)
+        # Define the cosine variance schedule
+        self.num_timesteps = int(timesteps)
 
-    x = Polar2Cart(output_height, output_width)(x)
-    return Model(inputs=inputs, outputs=x)
+        s = 0.008
+        temp = np.array([np.cos((t/self.num_timesteps + s)/(1 + s) * math.pi / 2) ** 2 for t in range(self.num_timesteps)])
+        betas = np.array([0 if x == 0 else min(1 - temp[x] / temp[x-1], 0.999) for x in range(self.num_timesteps)])
+
+        alphas = 1.0 - betas
+        self.alphas = tf.constant(alphas, dtype=tf.float32)
+
+        alphas_cumprod = np.cumprod(alphas, axis=0)
+        alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
+
+        self.betas = tf.constant(betas, dtype=tf.float32)
+        self.alphas_cumprod = tf.constant(alphas_cumprod, dtype=tf.float32)
+        self.alphas_cumprod_prev = tf.constant(alphas_cumprod_prev, dtype=tf.float32)
+
+        # Calculations for diffusion q(x_t | x_{t-1}) and others
+        self.sqrt_alphas_cumprod = tf.constant(
+            np.sqrt(alphas_cumprod), dtype=tf.float32
+        )
+
+        self.sqrt_one_minus_alphas_cumprod = tf.constant(
+            np.sqrt(1.0 - alphas_cumprod), dtype=tf.float32
+        )
+
+        self.log_one_minus_alphas_cumprod = tf.constant(
+            np.log(1.0 - alphas_cumprod), dtype=tf.float32
+        )
+
+        self.sqrt_recip_alphas_cumprod = tf.constant(
+            np.sqrt(1.0 / alphas_cumprod), dtype=tf.float32
+        )
+        self.sqrt_recipm1_alphas_cumprod = tf.constant(
+            np.sqrt(1.0 / alphas_cumprod - 1), dtype=tf.float32
+        )
+
+        # Calculations for posterior q(x_{t-1} | x_t, x_0)
+        posterior_variance = (
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        )
+        self.posterior_variance = tf.constant(posterior_variance, dtype=tf.float32)
+
+        # Log calculation clipped because the posterior variance is 0 at the beginning
+        # of the diffusion chain
+        self.posterior_log_variance_clipped = tf.constant(
+            np.log(np.maximum(posterior_variance, 1e-20)), dtype=tf.float32
+        )
+
+        self.posterior_mean_coef1 = tf.constant(
+            betas * np.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod),
+            dtype=tf.float32,
+        )
+
+        self.posterior_mean_coef2 = tf.constant(
+            (1.0 - alphas_cumprod_prev) * np.sqrt(alphas) / (1.0 - alphas_cumprod),
+            dtype=tf.float32,
+        )
+
+    def call(self, inputs, *args, **kwargs):
+        return model.call(inputs, *args, **kwargs)
+
+    @tf.function
+    def _extract(self, a, t, x_shape):
+        """Extract some coefficients at specified timesteps,
+        then reshape to [batch_size, 1, 1, 1, 1, ...] for broadcasting purposes.
+
+        Args:
+            a: Tensor to extract from
+            t: Timestep for which the coefficients are to be extracted
+            x_shape: Shape of the current batched samples
+        """
+        batch_size = x_shape[0]
+        out = tf.gather(a, t)
+        return tf.reshape(out, [batch_size, 1, 1, 1])
+
+    @tf.function
+    def q_mean_variance(self, x_start, t):
+        """Extracts the mean, and the variance at current timestep.
+
+        Args:
+            x_start: Initial sample (before the first diffusion step)
+            t: Current timestep
+        """
+        x_start_shape = tf.shape(x_start)
+        mean = self._extract(self.sqrt_alphas_cumprod, t, x_start_shape) * x_start
+        variance = self._extract(1.0 - self.alphas_cumprod, t, x_start_shape)
+        log_variance = self._extract(
+            self.log_one_minus_alphas_cumprod, t, x_start_shape
+        )
+        return mean, variance, log_variance
+
+    @tf.function
+    def q_sample(self, x_start, t, noise):
+        """Diffuse the data.
+
+        Args:
+            x_start: Initial sample (before the first diffusion step)
+            t: Current timestep
+            noise: Gaussian noise to be added at the current timestep
+        Returns:
+            Diffused samples at timestep `t`
+        """
+        x_start_shape = tf.shape(x_start)
+        return (
+                self._extract(self.sqrt_alphas_cumprod, t, tf.shape(x_start)) * x_start
+                + self._extract(self.sqrt_one_minus_alphas_cumprod, t, x_start_shape)
+                * noise
+        )
+
+    @tf.function
+    def predict_start_from_noise(self, x_t, t, noise):
+        """
+        Computes x_0 given x_t, t and the noise
+        :param x_t: The image at the current stage in the diffusion process
+        :param t: The time of that corresponding image
+        :param noise: The noise predicted by the model
+        :return: The predicted starting image
+        """
+        x_t_shape = tf.shape(x_t)
+        return (
+                self._extract(self.sqrt_recip_alphas_cumprod, t, x_t_shape) * x_t
+                - self._extract(self.sqrt_recipm1_alphas_cumprod, t, x_t_shape) * noise
+        )
+
+    @tf.function
+    def q_posterior(self, x_start, x_t, t):
+        """Compute the mean and variance of the diffusion
+        posterior q(x_{t-1} | x_t, x_0).
+
+        Args:
+            x_start: Stating point(sample) for the posterior computation
+            x_t: Sample at timestep `t`
+            t: Current timestep
+        Returns:
+            Posterior mean and variance at current timestep
+        """
+
+        x_t_shape = tf.shape(x_t)
+        posterior_mean = (
+                self._extract(self.posterior_mean_coef1, t, x_t_shape) * x_start
+                + self._extract(self.posterior_mean_coef2, t, x_t_shape) * x_t
+        )
+        posterior_variance = self._extract(self.posterior_variance, t, x_t_shape)
+        posterior_log_variance_clipped = self._extract(
+            self.posterior_log_variance_clipped, t, x_t_shape
+        )
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+    @tf.function
+    def p_mean_variance(self, pred_noise, x, t, clip_denoised=True):
+        """
+        Gets the predicted mean, variance and log variance
+        :param pred_noise: The noise predicted by the model
+        :param x: Samples at a given timestep for which the noise was predicted
+        :param t: Current timestep
+        :param clip_denoised: Whether to clip the predicted noise within the specified range
+        :return: Returns the mean, variance and log variance
+        """
+        if self.covariance == "learned":
+            pred_noise, pred_variance = tf.split(pred_noise, 2, axis=1)
+
+            min_log = self._extract(
+                self.posterior_log_variance_clipped, t, x.shape
+            )
+            max_log = self._extract(np.log(self.betas), t, x.shape)
+
+            # The model_var_values is [-1, 1] for [min_var, max_var].
+            frac = (pred_variance + 1) / 2
+            model_log_variance = frac * max_log + (1 - frac) * min_log
+            model_variance = tf.math.exp(model_log_variance)
+
+            x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
+            if clip_denoised:
+                x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+
+            model_mean, _, _ = self.q_posterior(
+                x_start=x_recon, x_t=x, t=t
+            )
+        else:
+            x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
+            if clip_denoised:
+                x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+
+            model_mean, model_variance, model_log_variance = self.q_posterior(
+                x_start=x_recon, x_t=x, t=t
+            )
+
+        return model_mean, model_variance, model_log_variance
+
+    @tf.function
+    def p_sample(self, pred_noise, x, t, clip_denoised=True):
+        """Sample from the diffusion model.
+
+        Args:
+            pred_noise: Noise predicted by the diffusion model
+            x: Samples at a given timestep for which the noise was predicted
+            t: Current timestep
+            clip_denoised (bool): Whether to clip the predicted noise
+                within the specified range or not.
+        """
+        model_mean, _, model_log_variance = self.p_mean_variance(
+            pred_noise, x=x, t=t, clip_denoised=clip_denoised
+        )
+        noise = tf.random.normal(shape=x.shape, dtype=x.dtype)
+
+        # No noise when t == 0
+        nonzero_mask = tf.reshape(
+            1 - tf.cast(tf.equal(t, 0), tf.float32), [tf.shape(x)[0], 1, 1, 1]
+        )
+        return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
+
+    def diffusion_loss(self, y_true, y_pred):
+        noise_true = y_true
+        noise_pred, covariance, _ = y_pred
+
+        l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
+        l_vlb = (1 - self.alphas) ** 2 / \
+                (2 * self.alphas * (1 - self.alphas_cumprod) * tf.norm(covariance, axis=-1)) * \
+                tf.stop_gradient(l_simple)  # L_vlb
+        l_consistency = 0  # todo implement data consistency loss
+        return l_simple + 0.001 * l_vlb + 0.001 * l_consistency
+
+    def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
+        """
+        Generates a stochastic sample from the diffusion model
+        :param sinogram: The sinogram y that the model uses as a condition
+        :param mask_indices: The indices of the sinogram to mask
+        :param unmask_indices: The indices of the sinogram to keep unmasked
+        :return: Returns the generated samples
+        """
+        sample_lst = []
+        noise_lst = []
+
+        num_images = tf.shape(sinogram)[0]
+
+        # 1. Randomly sample noise (starting point for reverse process)
+        samples = tf.random.normal(
+            shape=(num_images, 512, 512, 1), dtype=tf.float32
+        )
+
+        # 2. Sample from the model iteratively
+        for t in tqdm(list(reversed(range(1, self.num_timesteps)))):
+            tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
+            pred_noise = model.predict(
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
+                verbose=0
+            )
+            samples = self.p_sample(
+                pred_noise, samples, tt, clip_denoised=True
+            )
+            sample_lst.append(samples)
+            noise_lst.append(pred_noise)
+
+        # 3. Return generated samples
+        return sample_lst, noise_lst
+
+    def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
+        """
+        Generates a stochastic sample from the diffusion model starting from a timestep t
+        :param sinogram: The sinogram y that the model uses as a condition
+        :param mask_indices: The indices of the sinogram to mask
+        :param unmask_indices: The indices of the sinogram to keep unmasked
+        :param gt: The noised image at the timestep t
+        :param start_time: The timestep t to start from
+        :return: Returns the generated samples
+        """
+        sample_lst = []
+        noise_lst = []
+
+        num_images = tf.shape(sinogram)[0]
+
+        # 1. Randomly sample noise (starting point for reverse process)
+        t = tf.ones(shape=(len(sinogram), 1,)) * start_time
+        t = tf.cast(t, tf.int32)
+
+        noise = tf.random.normal((len(sinogram), 512, 512, 1))
+        samples = self.q_sample(gt, t, noise)
+        samples_original = samples
+
+        # 2. Sample from the model iteratively
+        for t in tqdm(list(reversed(range(1, start_time)))):
+            tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
+            pred_noise = self.predict(
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
+                verbose=0
+            )
+            samples = self.p_sample(
+                pred_noise, samples, tt, clip_denoised=True
+            )
+            sample_lst.append(samples)
+            noise_lst.append(pred_noise)
+
+        # 3. Return generated samples
+        return sample_lst, noise_lst, samples_original
 
 
 if __name__ == "__main__":
@@ -296,7 +528,7 @@ if __name__ == "__main__":
         dec_mlp_units=2048
     )
 
-    model = DiffusionTransformer(
+    base_model = DiffusionTransformer(
         mae,
         num_mask=0,
         dec_dim=256,
@@ -308,9 +540,9 @@ if __name__ == "__main__":
         output_y_patches=32,
         conditioning="adaln-zero"
     )
-    model.summary()
+    base_model.summary()
 
-    model(
+    base_model(
         [
             tf.zeros((1, 1024, 513, 1)),
             tf.zeros((1, 0)),
@@ -319,3 +551,5 @@ if __name__ == "__main__":
             tf.zeros((1, 1))
         ]
     )
+
+    model = DiffusionModel(base_model)

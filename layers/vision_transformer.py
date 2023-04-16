@@ -291,8 +291,9 @@ class PatchEncoder(Layer):
 
 
 class PatchDecoder(Layer):
-    def __init__(self, patch_width, patch_height, x_patches, y_patches, ignore_last=False, name=None, **kwargs):
+    def __init__(self, patch_width, patch_height, x_patches, y_patches, channels=1, ignore_last=False, name=None, **kwargs):
         super(PatchDecoder, self).__init__(name=name, **kwargs)
+        self.channels = channels
         self.patch_width = patch_width
         self.patch_height = patch_height
         self.x_patches = x_patches
@@ -320,7 +321,7 @@ class PatchDecoder(Layer):
         if self.ignore_last: encoded = encoded[:, :-1, :]
         reshaped = tf.reshape(encoded, (-1, self.y_patches, self.x_patches, self.patch_height, self.patch_width))
         reshaped = tf.transpose(reshaped, [0, 1, 3, 2, 4])
-        reshaped = tf.reshape(reshaped, (-1, self.y_patches * self.patch_height, self.x_patches * self.patch_width, 1))
+        reshaped = tf.reshape(reshaped, (-1, self.y_patches * self.patch_height, self.x_patches * self.patch_width, self.channels))
 
         # Merging into final output
         # def func(x):
