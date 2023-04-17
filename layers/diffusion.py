@@ -202,7 +202,7 @@ def DiffusionTransformer(
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
-    return Model(inputs=inputs, outputs=[y, tt])
+    return tt, Model(inputs=inputs, outputs=y)
 
 
 class DiffusionModel(Model):
@@ -428,40 +428,20 @@ class DiffusionModel(Model):
         )
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
-    def diffusion_loss(self, y_true, y_pred):
-        noise_true, tt = y_true
-        noise_pred, _ = y_pred
-        # if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=-1)
-        # else: noise_pred = y_pred
+    def diffusion_loss(self, tt):
+        def loss(noise_true, noise_pred):
+            if self.covariance == "learned":
+                noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
+                l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
+                l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
+                        (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
+                         (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
+                        tf.stop_gradient(l_simple)  # L_vlb
+                return l_simple + 0.001 * l_vlb
+            else:
+                return tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
 
-        l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
-        return l_simple
-        # if self.covariance == "learned":
-        #     l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
-        #             (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-        #              (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
-        #            tf.stop_gradient(l_simple)  # L_vlb
-        #    return l_simple + 0.001 * l_vlb
-        # else: return l_simple
-
-    def train_step(self, data):
-        x, y = data
-
-        with tf.GradientTape() as tape:
-            # Pass the diffused images and time steps to the network
-            y_pred = self(x, training=True)
-
-            # Calculate the loss
-            loss = self.diffusion_loss(y, y_pred)
-
-        # Get the gradients
-        gradients = tape.gradient(loss, self.trainable_variables)
-
-        # Update the weights of the network
-        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-
-        # Return loss values
-        return {"loss": loss}
+        return loss
 
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
@@ -552,7 +532,7 @@ if __name__ == "__main__":
         dec_mlp_units=2048
     )
 
-    base_model = DiffusionTransformer(
+    tt, base_model = DiffusionTransformer(
         mae,
         num_mask=0,
         dec_dim=256,
@@ -578,3 +558,4 @@ if __name__ == "__main__":
 
     model = DiffusionModel(None)
     model.model = base_model
+    model.add_loss(model.diffusion_loss(tt))
