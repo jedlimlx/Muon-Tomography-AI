@@ -430,18 +430,19 @@ class DiffusionModel(Model):
 
     def diffusion_loss(self, y_true, y_pred):
         noise_true, tt = y_true
-        y_pred, _ = y_pred
-        if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=-1)
-        else: noise_pred = y_pred
+        noise_pred, _ = y_pred
+        # if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=-1)
+        # else: noise_pred = y_pred
 
         l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
-        if self.covariance == "learned":
-            l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
-                    (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
-                    tf.stop_gradient(l_simple)  # L_vlb
-            return l_simple + 0.001 * l_vlb
-        else: return l_simple
+        return l_simple
+        # if self.covariance == "learned":
+        #     l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
+        #             (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
+        #              (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
+        #            tf.stop_gradient(l_simple)  # L_vlb
+        #    return l_simple + 0.001 * l_vlb
+        # else: return l_simple
 
     def train_step(self, data):
         x, y = data
