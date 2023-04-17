@@ -431,7 +431,7 @@ class DiffusionModel(Model):
     def diffusion_loss(self, y_true, y_pred):
         noise_true, _ = y_true
         y_pred, _ = y_pred
-        if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=1)
+        if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=-1)
         else: noise_pred = y_pred
 
         l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
