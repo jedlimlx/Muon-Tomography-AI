@@ -441,6 +441,25 @@ class DiffusionModel(Model):
         l_consistency = 0  # todo implement data consistency loss
         return l_simple + 0.001 * l_consistency + (0.001 * l_vlb if covariance == "learned" else 0)
 
+    def train_step(self, data):
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            # Pass the diffused images and time steps to the network
+            y_pred = self(x, training=True)
+
+            # Calculate the loss
+            loss = self.diffusion_loss(y, y_pred)
+
+        # Get the gradients
+        gradients = tape.gradient(loss, self.trainable_weights)
+
+        # Update the weights of the network
+        self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
+
+        # Return loss values
+        return {"loss": loss}
+
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
         Generates a stochastic sample from the diffusion model
