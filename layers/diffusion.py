@@ -129,10 +129,11 @@ def DiffusionTransformer(
         Input(input_shape), Input(num_mask, dtype=tf.int32),
         Input(num_patches, dtype=tf.int32),
         Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
-        Input((1,), dtype=tf.float32)
+        Input((1,), dtype=tf.float32),
+        Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
     ]
 
-    x, mask_indices, unmask_indices, y, tt = inputs
+    x, mask_indices, unmask_indices, y, tt, target = inputs
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
@@ -202,7 +203,7 @@ def DiffusionTransformer(
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
-    return tt, Model(inputs=inputs, outputs=y)
+    return tt, y, target, Model(inputs=inputs, outputs=[tt, y, target])
 
 
 class DiffusionModel(Model):
@@ -428,20 +429,17 @@ class DiffusionModel(Model):
         )
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
-    def diffusion_loss(self, tt):
-        def loss(noise_true, noise_pred):
-            if self.covariance == "learned":
-                noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
-                l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
-                l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
-                        (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-                         (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
-                        tf.stop_gradient(l_simple)  # L_vlb
-                return l_simple + 0.001 * l_vlb
-            else:
-                return tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
-
-        return loss
+    def diffusion_loss(self, tt, noise_true, noise_pred):
+        if self.covariance == "learned":
+            noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
+            l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
+            l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
+                    (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
+                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
+                    tf.stop_gradient(l_simple)  # L_vlb
+            return l_simple + 0.001 * l_vlb
+        else:
+            return tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
 
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
@@ -532,7 +530,7 @@ if __name__ == "__main__":
         dec_mlp_units=2048
     )
 
-    tt, base_model = DiffusionTransformer(
+    tt, noise_pred, noise_true, base_model = DiffusionTransformer(
         mae,
         num_mask=0,
         dec_dim=256,
@@ -552,10 +550,11 @@ if __name__ == "__main__":
             tf.zeros((1, 0)),
             tf.zeros((1, 1024)),
             tf.zeros((1, 512, 512, 1)),
-            tf.zeros((1, 1))
+            tf.zeros((1, 1)),
+            tf.zeros((1, 512, 512, 1)),
         ]
     )
 
     model = DiffusionModel(None)
     model.model = base_model
-    model.add_loss(model.diffusion_loss(tt))
+    model.add_loss(model.diffusion_loss(tt, noise_true, noise_pred))
