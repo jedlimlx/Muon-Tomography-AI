@@ -276,7 +276,7 @@ class DiffusionModel(Model):
         )
 
     def call(self, inputs, *args, **kwargs):
-        return model.call(inputs, *args, **kwargs)
+        return self.model.call(inputs, *args, **kwargs)
 
     @tf.function
     def _extract(self, a, t, x_shape):
