@@ -455,10 +455,10 @@ class DiffusionModel(Model):
             loss = self.diffusion_loss(y, y_pred)
 
         # Get the gradients
-        gradients = tape.gradient(loss, self.trainable_weights)
+        gradients = tape.gradient(loss, self.trainable_variables)
 
         # Update the weights of the network
-        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_weights))
+        self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
         # Return loss values
         return {"loss": loss}
