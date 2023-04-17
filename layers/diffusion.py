@@ -430,14 +430,16 @@ class DiffusionModel(Model):
 
     def diffusion_loss(self, y_true, y_pred):
         noise_true = y_true
-        noise_pred, covariance, _ = y_pred
+        y_pred, _ = y_pred
+        if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=1)
+        else: noise_pred = y_pred
 
         l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
         l_vlb = (1 - self.alphas) ** 2 / \
                 (2 * self.alphas * (1 - self.alphas_cumprod) * tf.norm(covariance, axis=-1)) * \
                 tf.stop_gradient(l_simple)  # L_vlb
         l_consistency = 0  # todo implement data consistency loss
-        return l_simple + 0.001 * l_vlb + 0.001 * l_consistency
+        return l_simple + 0.001 * l_consistency + (0.001 * l_vlb if covariance == "learned" else 0)
 
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
@@ -552,4 +554,5 @@ if __name__ == "__main__":
         ]
     )
 
-    model = DiffusionModel(base_model)
+    model = DiffusionModel(None)
+    model.model = base_model
