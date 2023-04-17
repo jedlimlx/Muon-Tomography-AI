@@ -429,7 +429,7 @@ class DiffusionModel(Model):
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
     def diffusion_loss(self, y_true, y_pred):
-        noise_true = y_true
+        noise_true, _ = y_true
         y_pred, _ = y_pred
         if self.covariance == "learned": noise_pred, covariance = tf.split(y_pred, 2, axis=1)
         else: noise_pred = y_pred
