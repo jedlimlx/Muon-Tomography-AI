@@ -130,10 +130,9 @@ def DiffusionTransformer(
         Input(num_patches, dtype=tf.int32),
         Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
         Input((1,), dtype=tf.float32),
-        Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1), dtype='float32'),
     ]
 
-    x, mask_indices, unmask_indices, y, tt, target = inputs
+    x, mask_indices, unmask_indices, y, tt = inputs
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
@@ -203,7 +202,7 @@ def DiffusionTransformer(
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
-    return tt, y, target, Model(inputs=inputs, outputs=[tt, y, target])
+    return Model(inputs=inputs, outputs=y)
 
 
 class DiffusionModel(Model):
@@ -441,6 +440,31 @@ class DiffusionModel(Model):
         else:
             return tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
 
+    def train_step(self, data):
+        # Unpack the data. Its structure depends on your model and
+        # on what you pass to `fit()`.
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)  # Forward pass
+
+            # Compute the loss value
+            # (the loss function is configured in `compile()`)
+            loss = self.compiled_loss(x[-1], y, y_pred)
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+        # Update metrics (includes the metric that tracks the loss)
+        self.compiled_metrics.update_state(y, y_pred)
+
+        # Return a dict mapping metric names to current value
+        return { m.name: m.result() for m in self.metrics }
+
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
         Generates a stochastic sample from the diffusion model
@@ -530,7 +554,7 @@ if __name__ == "__main__":
         dec_mlp_units=2048
     )
 
-    tt, noise_pred, noise_true, base_model = DiffusionTransformer(
+    base_model = DiffusionTransformer(
         mae,
         num_mask=0,
         dec_dim=256,
@@ -551,10 +575,9 @@ if __name__ == "__main__":
             tf.zeros((1, 1024)),
             tf.zeros((1, 512, 512, 1)),
             tf.zeros((1, 1)),
-            tf.zeros((1, 512, 512, 1)),
         ]
     )
 
     model = DiffusionModel(None)
     model.model = base_model
-    model.add_loss(model.diffusion_loss(tt, noise_true, noise_pred))
+    model.compile(optimizer="adam", loss=model.diffusion_loss)
