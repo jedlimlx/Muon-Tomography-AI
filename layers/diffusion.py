@@ -1,6 +1,3 @@
-import math
-
-import numpy as np
 import tensorflow as tf
 
 keras = tf.keras
@@ -11,7 +8,7 @@ from functools import partial
 
 from tqdm import tqdm
 
-from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP
+from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP, positional_encoding
 
 
 class DiTBlock(Layer):
@@ -116,10 +113,10 @@ class TimeEmbedding(Layer):
 
 
 def DiffusionTransformer(
-    mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
-    output_patch_width=16, output_x_patches=16, output_y_patches=16,
-    norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp",
-    conditioning="cross-attention", covariance="learned"
+        mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
+        output_patch_width=16, output_x_patches=16, output_y_patches=16,
+        norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp",
+        conditioning="cross-attention", covariance="learned"
 ):
     input_shape = mae.inp_shape
 
@@ -136,7 +133,8 @@ def DiffusionTransformer(
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
-    else: time_token = Dense(dec_dim)(Dense(100, activation="gelu")(tt))
+    else:
+        time_token = Dense(dec_dim)(Dense(100, activation="gelu")(tt))
 
     mae.patches.trainable = False
     x = mae.patches(x)
@@ -198,7 +196,8 @@ def DiffusionTransformer(
             )((y, x))
 
     y = norm(name='output_norm')(y)
-    y = Dense(output_patch_height * output_patch_width * (2 if covariance == "learned" else 1), name='output_projection')(y)
+    y = Dense(output_patch_height * output_patch_width * (2 if covariance == "learned" else 1),
+              name='output_projection')(y)
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
@@ -209,6 +208,7 @@ class DiffusionModel(Model):
     """
     Implements a diffusion model for solving linear inverse problems
     """
+
     def __init__(self, model, timesteps=1000, covariance="fixed", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.timesteps = timesteps
@@ -220,8 +220,9 @@ class DiffusionModel(Model):
         self.num_timesteps = int(timesteps)
 
         s = 0.008
-        temp = np.array([np.cos((t/self.num_timesteps + s)/(1 + s) * math.pi / 2) ** 2 for t in range(self.num_timesteps)])
-        betas = np.array([0 if x == 0 else min(1 - temp[x] / temp[x-1], 0.999) for x in range(self.num_timesteps)])
+        temp = np.array(
+            [np.cos((t / self.num_timesteps + s) / (1 + s) * math.pi / 2) ** 2 for t in range(self.num_timesteps)])
+        betas = np.array([0 if x == 0 else min(1 - temp[x] / temp[x - 1], 0.999) for x in range(self.num_timesteps)])
 
         alphas = 1.0 - betas
         self.alphas = tf.constant(alphas, dtype=tf.float32)
@@ -255,7 +256,7 @@ class DiffusionModel(Model):
 
         # Calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (
-            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+                betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         )
         self.posterior_variance = tf.constant(posterior_variance, dtype=tf.float32)
 
@@ -275,8 +276,10 @@ class DiffusionModel(Model):
             dtype=tf.float32,
         )
 
+        self.loss_tracker = keras.metrics.Mean(name='loss')
+
     def call(self, inputs, *args, **kwargs):
-        return self.model.call(inputs, *args, **kwargs)
+        return self.model(inputs, *args, **kwargs)
 
     @tf.function
     def _extract(self, a, t, x_shape):
@@ -434,7 +437,8 @@ class DiffusionModel(Model):
             l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
             l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
                     (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance, axis=-1)) * \
+                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance,
+                                                                                                  axis=-1)) * \
                     tf.stop_gradient(l_simple)  # L_vlb
             return l_simple + 0.001 * l_vlb
         else:
@@ -445,12 +449,17 @@ class DiffusionModel(Model):
         # on what you pass to `fit()`.
         x, y = data
 
+        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=0, maxval=self.timesteps ** (1 / 0.7))
+        t = tf.cast(tf.math.floor(t ** 0.7), tf.int32)
+        noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
+        inputt = self.q_sample(y, t, noise)
+
         with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)  # Forward pass
+            y_pred = self((*x, inputt, t), training=True)  # Forward pass
 
             # Compute the loss value
             # (the loss function is configured in `compile()`)
-            loss = self.diffusion_loss(x[-1], y, y_pred)
+            loss = self.diffusion_loss(t, noise, y_pred)
 
         # Compute gradients
         trainable_vars = self.trainable_variables
@@ -460,10 +469,11 @@ class DiffusionModel(Model):
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
         # Update metrics (includes the metric that tracks the loss)
-        self.compiled_metrics.update_state(y, y_pred)
+        self.compiled_metrics.update_state(noise, y_pred)
+        self.loss_tracker.update_state(loss)
 
         # Return a dict mapping metric names to current value
-        return { m.name: m.result() for m in self.metrics }
+        return {m.name: m.result() for m in self.metrics}
 
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
@@ -486,7 +496,7 @@ class DiffusionModel(Model):
         # 2. Sample from the model iteratively
         for t in tqdm(list(reversed(range(1, self.num_timesteps)))):
             tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
-            pred_noise = model.predict(
+            pred_noise = self.model.predict(
                 [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
                 verbose=0
             )
@@ -499,85 +509,167 @@ class DiffusionModel(Model):
         # 3. Return generated samples
         return sample_lst, noise_lst
 
-    def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
-        """
-        Generates a stochastic sample from the diffusion model starting from a timestep t
-        :param sinogram: The sinogram y that the model uses as a condition
-        :param mask_indices: The indices of the sinogram to mask
-        :param unmask_indices: The indices of the sinogram to keep unmasked
-        :param gt: The noised image at the timestep t
-        :param start_time: The timestep t to start from
-        :return: Returns the generated samples
-        """
-        sample_lst = []
-        noise_lst = []
+    @property
+    def metrics(self):
+        return [*super(DiffusionModel, self).metrics, self.loss_tracker]
 
-        num_images = tf.shape(sinogram)[0]
-
-        # 1. Randomly sample noise (starting point for reverse process)
-        t = tf.ones(shape=(len(sinogram), 1,)) * start_time
-        t = tf.cast(t, tf.int32)
-
-        noise = tf.random.normal((len(sinogram), 512, 512, 1))
-        samples = self.q_sample(gt, t, noise)
-        samples_original = samples
-
-        # 2. Sample from the model iteratively
-        for t in tqdm(list(reversed(range(1, start_time)))):
-            tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
-            pred_noise = self.predict(
-                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
-                verbose=0
-            )
-            samples = self.p_sample(
-                pred_noise, samples, tt, clip_denoised=True
-            )
-            sample_lst.append(samples)
-            noise_lst.append(pred_noise)
-
-        # 3. Return generated samples
-        return sample_lst, noise_lst, samples_original
+    # def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
+    #     """
+    #     Generates a stochastic sample from the diffusion model starting from a timestep t
+    #     :param sinogram: The sinogram y that the model uses as a condition
+    #     :param mask_indices: The indices of the sinogram to mask
+    #     :param unmask_indices: The indices of the sinogram to keep unmasked
+    #     :param gt: The noised image at the timestep t
+    #     :param start_time: The timestep t to start from
+    #     :return: Returns the generated samples
+    #     """
+    #     sample_lst = []
+    #     noise_lst = []
+    #
+    #     num_images = tf.shape(sinogram)[0]
+    #
+    #     # 1. Randomly sample noise (starting point for reverse process)
+    #     t = tf.ones(shape=(len(sinogram), 1,)) * start_time
+    #     t = tf.cast(t, tf.int32)
+    #
+    #     noise = tf.random.normal((len(sinogram), 512, 512, 1))
+    #     samples = self.q_sample(gt, t, noise)
+    #     samples_original = samples
+    #
+    #     # 2. Sample from the model iteratively
+    #     for t in tqdm(list(reversed(range(1, start_time)))):
+    #         tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
+    #         pred_noise = self.predict(
+    #             [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
+    #             verbose=0
+    #         )
+    #         samples = self.p_sample(
+    #             pred_noise, samples, tt, clip_denoised=True
+    #         )
+    #         sample_lst.append(samples)
+    #         noise_lst.append(pred_noise)
+    #
+    #     # 3. Return generated samples
+    #     return sample_lst, noise_lst, samples_original
 
 
 if __name__ == "__main__":
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    import tensorflow as tf
+    import tensorflow_addons as tfa
+
+    from tensorflow.keras.layers import *
+
+    from layers.vision_transformer import positional_encoding
     from layers.mae import MAE
 
+    PER_REPLICA_BATCH_SIZE = 1
+    # %%
+    import math
+
+    interpolation = "bilinear"
+
+
+    @tf.function
+    def transform_mae(sinogram, gt):
+        sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+        sinogram = tf.image.resize(sinogram, (1024, 513))
+        return sinogram
+
+
+    @tf.function
+    def transform_denoise(sinogram, gt):
+        sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+        sinogram = tf.image.resize(sinogram, (1024, 513), method=interpolation)
+        gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
+        gt = tf.image.resize(gt, (512, 512))
+
+        rand_indices = tf.argsort(
+            tf.random.uniform(shape=(tf.shape(gt)[0], 1024)), axis=-1
+        )
+        mask_indices = rand_indices[:, : 0]
+        unmask_indices = rand_indices[:, 0:]
+
+        return (sinogram, mask_indices, unmask_indices), gt
+
+
+    # %%
+    feature_desc = {
+        'observation': tf.io.FixedLenFeature([], tf.string),
+        'ground_truth': tf.io.FixedLenFeature([], tf.string)
+    }
+
+
+    def _parse_example(example_proto):
+        res = tf.io.parse_single_example(example_proto, feature_desc)
+        observation = tf.io.parse_tensor(res['observation'], out_type=tf.float32)
+        ground_truth = tf.io.parse_tensor(res['ground_truth'], out_type=tf.float32)
+        observation.set_shape((1000, 513))
+        ground_truth.set_shape((362, 362))
+        return observation, ground_truth
+
+
+    # %%
+    train_ds_denoise = tf.data.TFRecordDataset('lodopab_full_dose_train.tfrecord').map(_parse_example).batch(
+        PER_REPLICA_BATCH_SIZE).map(transform_denoise).shuffle(100)
+
+    val_ds_denoise = tf.data.TFRecordDataset('lodopab_full_dose_validation.tfrecord').map(_parse_example).batch(
+        PER_REPLICA_BATCH_SIZE).map(transform_denoise).shuffle(100)
+
+    test_ds_denoise = tf.data.TFRecordDataset('lodopab_full_dose_test.tfrecord').map(_parse_example).batch(
+        PER_REPLICA_BATCH_SIZE).map(transform_denoise).shuffle(100)
+
+    # train_dist_ds = strategy.experimental_distribute_dataset(train_ds)
+    # test_dist_ds = strategy.experimental_distribute_dataset(test_ds)
+    # %%
     mae = MAE(
-        enc_layers=4,
+        enc_layers=1,
         dec_layers=1,
         sinogram_width=513,
         sinogram_height=1,
         input_shape=(1024, 513, 1),
         enc_dim=512,
-        enc_mlp_units=2048,
-        dec_dim=512,
+        enc_mlp_units=256,
+        dec_dim=256,
         dec_mlp_units=2048
     )
+    mae.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), loss='mse')
+    # history = model.fit(train_ds, epochs=50, validation_data=test_ds)
+    # mae.load_weights("../input/lodopab-mae/model_ckpt/model")
 
     base_model = DiffusionTransformer(
         mae,
         num_mask=0,
         dec_dim=256,
-        dec_mlp_units=1024,
-        dec_layers=4,
+        dec_mlp_units=256,
+        dec_layers=1,
         output_patch_width=16,
         output_patch_height=16,
         output_x_patches=32,
         output_y_patches=32,
-        conditioning="adaln-zero"
+        timestep_embedding="mlp",
+        conditioning="adaln-zero",
+        covariance="fixed"
+    )
+
+    mae.trainable = True
+    base_model.compile(
+        optimizer=(
+            tfa.optimizers.AdamW(weight_decay=3e-7, learning_rate=1.2e-4, beta_1=0.9, beta_2=0.999)
+        ), loss="mse"
     )
     base_model.summary()
 
-    base_model(
-        [
-            tf.zeros((1, 1024, 513, 1)),
-            tf.zeros((1, 0)),
-            tf.zeros((1, 1024)),
-            tf.zeros((1, 512, 512, 1)),
-            tf.zeros((1, 1)),
-        ]
+    diffusion_model = DiffusionModel(model=base_model)
+
+    diffusion_model.model = base_model
+    diffusion_model.compile(
+        optimizer=(
+            tfa.optimizers.AdamW(weight_decay=3e-7, learning_rate=1.2e-4, beta_1=0.9, beta_2=0.999)
+        ), loss=lambda x, y, z: diffusion_model.diffusion_loss(x, y, z)
     )
 
-    model = DiffusionModel(None)
-    model.model = base_model
-    model.compile(optimizer="adam", loss=model.diffusion_loss)
+    history = diffusion_model.fit(train_ds_denoise, epochs=1)
+    base_model.save_weights('diffusion_model/model')
