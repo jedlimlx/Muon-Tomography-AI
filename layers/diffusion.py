@@ -450,7 +450,7 @@ class DiffusionModel(Model):
 
             # Compute the loss value
             # (the loss function is configured in `compile()`)
-            loss = self.compiled_loss(x[-1], y, y_pred)
+            loss = self.diffusion_loss(x[-1], y, y_pred)
 
         # Compute gradients
         trainable_vars = self.trainable_variables
