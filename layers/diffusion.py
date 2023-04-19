@@ -451,7 +451,7 @@ class DiffusionModel(Model):
             l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
                     (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
                      (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) *
-                     tf.norm(model_variance, axis=-1)) * \
+                     tf.norm(model_variance, axis=-1) + 1e-8) * \
                     tf.stop_gradient(l_simple)  # L_vlb
             return l_simple + 0.001 * l_vlb
         else:
