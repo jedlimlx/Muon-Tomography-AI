@@ -387,9 +387,9 @@ class DiffusionModel(Model):
             pred_noise, pred_variance = tf.split(pred_noise, 2, axis=1)
 
             min_log = self._extract(
-                self.posterior_log_variance_clipped, t, x.shape
+                self.posterior_log_variance_clipped, t, tf.shape(x)
             )
-            max_log = self._extract(np.log(self.betas), t, x.shape)
+            max_log = self._extract(np.log(self.betas), t, tf.shape(x))
 
             # The model_var_values is [-1, 1] for [min_var, max_var].
             frac = (pred_variance + 1) / 2
@@ -440,8 +440,8 @@ class DiffusionModel(Model):
         if self.covariance == "learned":
             noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
 
-            min_log = self._extract(self.posterior_log_variance_clipped, tt, noise_true.shape)
-            max_log = self._extract(np.log(self.betas), tt, noise_true.shape)
+            min_log = self._extract(self.posterior_log_variance_clipped, tt, tf.shape(noise_true))
+            max_log = self._extract(np.log(self.betas), tt, tf.shape(noise_true))
 
             frac = (covariance + 1) / 2
             model_log_variance = frac * max_log + (1 - frac) * min_log
