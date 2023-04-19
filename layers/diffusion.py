@@ -218,6 +218,9 @@ class DiffusionModel(Model):
 
         self.model = model
 
+        self.clip_min = -1
+        self.clip_max = 1
+
         # Define the cosine variance schedule
         self.num_timesteps = int(timesteps)
 
@@ -436,11 +439,19 @@ class DiffusionModel(Model):
     def diffusion_loss(self, tt, noise_true, noise_pred):
         if self.covariance == "learned":
             noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
+
+            min_log = self._extract(self.posterior_log_variance_clipped, tt, noise_true.shape)
+            max_log = self._extract(np.log(self.betas), tt, noise_true.shape)
+
+            frac = (covariance + 1) / 2
+            model_log_variance = frac * max_log + (1 - frac) * min_log
+            model_variance = tf.math.exp(model_log_variance)
+
             l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
             l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
                     (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) * tf.norm(covariance,
-                                                                                                  axis=-1)) * \
+                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) *
+                     tf.norm(model_variance, axis=-1)) * \
                     tf.stop_gradient(l_simple)  # L_vlb
             return l_simple + 0.001 * l_vlb
         else:
@@ -515,44 +526,44 @@ class DiffusionModel(Model):
     def metrics(self):
         return [*super(DiffusionModel, self).metrics, self.loss_tracker]
 
-    # def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
-    #     """
-    #     Generates a stochastic sample from the diffusion model starting from a timestep t
-    #     :param sinogram: The sinogram y that the model uses as a condition
-    #     :param mask_indices: The indices of the sinogram to mask
-    #     :param unmask_indices: The indices of the sinogram to keep unmasked
-    #     :param gt: The noised image at the timestep t
-    #     :param start_time: The timestep t to start from
-    #     :return: Returns the generated samples
-    #     """
-    #     sample_lst = []
-    #     noise_lst = []
-    #
-    #     num_images = tf.shape(sinogram)[0]
-    #
-    #     # 1. Randomly sample noise (starting point for reverse process)
-    #     t = tf.ones(shape=(len(sinogram), 1,)) * start_time
-    #     t = tf.cast(t, tf.int32)
-    #
-    #     noise = tf.random.normal((len(sinogram), 512, 512, 1))
-    #     samples = self.q_sample(gt, t, noise)
-    #     samples_original = samples
-    #
-    #     # 2. Sample from the model iteratively
-    #     for t in tqdm(list(reversed(range(1, start_time)))):
-    #         tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
-    #         pred_noise = self.predict(
-    #             [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
-    #             verbose=0
-    #         )
-    #         samples = self.p_sample(
-    #             pred_noise, samples, tt, clip_denoised=True
-    #         )
-    #         sample_lst.append(samples)
-    #         noise_lst.append(pred_noise)
-    #
-    #     # 3. Return generated samples
-    #     return sample_lst, noise_lst, samples_original
+    def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
+        """
+        Generates a stochastic sample from the diffusion model starting from a timestep t
+        :param sinogram: The sinogram y that the model uses as a condition
+        :param mask_indices: The indices of the sinogram to mask
+        :param unmask_indices: The indices of the sinogram to keep unmasked
+        :param gt: The noised image at the timestep t
+        :param start_time: The timestep t to start from
+        :return: Returns the generated samples
+        """
+        sample_lst = []
+        noise_lst = []
+
+        num_images = tf.shape(sinogram)[0]
+
+        # 1. Randomly sample noise (starting point for reverse process)
+        t = tf.ones(shape=(len(sinogram), 1,)) * start_time
+        t = tf.cast(t, tf.int32)
+
+        noise = tf.random.normal((len(sinogram), 512, 512, 1))
+        samples = self.q_sample(gt, t, noise)
+        samples_original = samples
+
+        # 2. Sample from the model iteratively
+        for t in tqdm(list(reversed(range(1, start_time)))):
+            tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
+            pred_noise = self.predict(
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
+                verbose=0
+            )
+            samples = self.p_sample(
+                pred_noise, samples, tt, clip_denoised=True
+            )
+            sample_lst.append(samples)
+            noise_lst.append(pred_noise)
+
+        # 3. Return generated samples
+        return sample_lst, noise_lst, samples_original
 
 
 if __name__ == "__main__":
