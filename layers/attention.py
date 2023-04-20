@@ -1,9 +1,8 @@
 import tensorflow as tf
+keras = tf.keras
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import Sequential
-
-from tensorflow_addons.layers import GroupNormalization
+from keras.layers import *
+from keras.models import Sequential
 
 
 class SqueezeAndExcite2D(Layer):
