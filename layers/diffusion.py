@@ -462,8 +462,8 @@ class DiffusionModel(Model):
         # on what you pass to `fit()`.
         x, y = data
 
-        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=1, maxval=self.timesteps ** (1 / 0.7))
-        t = tf.cast(tf.math.floor(t ** 0.7), tf.int32)
+        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=1, maxval=self.timesteps)
+        t = tf.cast(tf.math.floor(t), tf.int32)
         noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
         inputt = self.q_sample(y, t, noise)
 
