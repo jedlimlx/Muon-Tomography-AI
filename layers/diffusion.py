@@ -211,7 +211,7 @@ def DiffusionTransformer(
     if prediction == "gt":
         pred_noise = (x_t - Extract()([model.alphas, tt, tf.shape(x_t)]) ** 0.5 * pred_noise) / \
                      ((1 - Extract()([model.alphas_cumprod, tt, tf.shape(x_t)])) ** 0.5 /
-                      (1 - Extract()([model.alphas, tt, tf.shape(x_t)])))
+                      (1 - Extract()([model.alphas, tt, tf.shape(x_t)])) + 1e-8)
 
     if covariance == "learned": y = concatenate([pred_noise, pred_variance])
     else: y = pred_noise
