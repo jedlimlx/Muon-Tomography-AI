@@ -118,7 +118,7 @@ def DiffusionTransformer(
     mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
     output_patch_width=16, output_x_patches=16, output_y_patches=16,
     norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp",
-    conditioning="cross-attention", covariance="learned", prediction="noise", model=None
+    conditioning="cross-attention", covariance="learned"
 ):
     input_shape = mae.inp_shape
 
@@ -204,37 +204,7 @@ def DiffusionTransformer(
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
 
-    if covariance == "learned":
-        pred_noise, pred_variance = tf.split(y, 2, axis=-1)
-    else: pred_noise = y
-
-    if prediction == "gt":
-        pred_noise = (x_t - Extract()([model.alphas, tt, tf.shape(x_t)]) ** 0.5 * pred_noise) / \
-                     ((1 - Extract()([model.alphas_cumprod, tt, tf.shape(x_t)])) ** 0.5 /
-                      (1 - Extract()([model.alphas, tt, tf.shape(x_t)])) + 1e-8)
-
-    if covariance == "learned": y = concatenate([pred_noise, pred_variance])
-    else: y = pred_noise
-
     return Model(inputs=inputs, outputs=y)
-
-
-class Extract(Layer):
-    def call(self, inputs, *args, **kwargs):
-        """Extract some coefficients at specified timesteps,
-        then reshape to [batch_size, 1, 1, 1, 1, ...] for broadcasting purposes.
-
-        Args:
-            a: Tensor to extract from
-            t: Timestep for which the coefficients are to be extracted
-            x_shape: Shape of the current batched samples
-        """
-        a, t, x_shape = inputs
-        t = tf.cast(t, tf.int32)
-
-        batch_size = x_shape[0]
-        out = tf.gather(a, t)
-        return tf.reshape(out, [batch_size, 1, 1, 1])
 
 
 class DiffusionModel(Model):
