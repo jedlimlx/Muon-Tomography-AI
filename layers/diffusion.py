@@ -209,14 +209,31 @@ def DiffusionTransformer(
     else: pred_noise = y
 
     if prediction == "gt":
-        pred_noise = (x_t - model._extract(model.alphas, tt, tf.shape(x_t)) ** 0.5 * pred_noise) / \
-                     ((1 - model._extract(model.alphas_cumprod, tt, tf.shape(x_t))) ** 0.5 /
-                      (1 - model._extract(model.alphas, tt, tf.shape(x_t))))
+        pred_noise = (x_t - Extract()([model.alphas, tt, tf.shape(x_t)]) ** 0.5 * pred_noise) / \
+                     ((1 - Extract()([model.alphas_cumprod, tt, tf.shape(x_t)])) ** 0.5 /
+                      (1 - Extract()([model.alphas, tt, tf.shape(x_t)])))
 
     if covariance == "learned": y = concatenate([pred_noise, pred_variance])
     else: y = pred_noise
 
     return Model(inputs=inputs, outputs=y)
+
+
+class Extract(Layer):
+    def call(self, inputs, *args, **kwargs):
+        """Extract some coefficients at specified timesteps,
+        then reshape to [batch_size, 1, 1, 1, 1, ...] for broadcasting purposes.
+
+        Args:
+            a: Tensor to extract from
+            t: Timestep for which the coefficients are to be extracted
+            x_shape: Shape of the current batched samples
+        """
+        a, t, x_shape = inputs
+
+        batch_size = x_shape[0]
+        out = tf.gather(a, t)
+        return tf.reshape(out, [batch_size, 1, 1, 1])
 
 
 class DiffusionModel(Model):
