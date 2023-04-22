@@ -132,6 +132,7 @@ def DiffusionTransformer(
     ]
 
     x, mask_indices, unmask_indices, y, tt = inputs
+    x_t = y
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
