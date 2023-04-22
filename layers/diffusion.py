@@ -230,6 +230,7 @@ class Extract(Layer):
             x_shape: Shape of the current batched samples
         """
         a, t, x_shape = inputs
+        t = tf.cast(t, tf.int32)
 
         batch_size = x_shape[0]
         out = tf.gather(a, t)
