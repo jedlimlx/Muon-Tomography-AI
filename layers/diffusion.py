@@ -118,7 +118,7 @@ def DiffusionTransformer(
     mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_patch_height=16,
     output_patch_width=16, output_x_patches=16, output_y_patches=16,
     norm=partial(LayerNormalization, epsilon=1e-5), timestep_embedding="mlp",
-    conditioning="cross-attention", covariance="learned"
+    conditioning="cross-attention", covariance="learned", prediction="noise", model=None
 ):
     input_shape = mae.inp_shape
 
@@ -132,6 +132,7 @@ def DiffusionTransformer(
     ]
 
     x, mask_indices, unmask_indices, y, tt = inputs
+    x_t = y
 
     if timestep_embedding == "sin-cos":
         time_token = TimeEmbedding(dec_dim)(tt[:, 0])
@@ -202,6 +203,18 @@ def DiffusionTransformer(
               name='output_projection')(y)
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                      ignore_last=True, channels=2 if covariance == "learned" else 1)(y)
+
+    if covariance == "learned":
+        pred_noise, pred_variance = tf.split(y, 2, axis=-1)
+    else: pred_noise = y
+
+    if prediction == "gt":
+        pred_noise = (x_t - model._extract(model.alphas, tt, tf.shape(x_t)) ** 0.5 * pred_noise) / \
+                     ((1 - model._extract(model.alphas_cumprod, tt, tf.shape(x_t))) ** 0.5 /
+                      (1 - model._extract(model.alphas, tt, tf.shape(x_t))))
+
+    if covariance == "learned": y = concatenate([pred_noise, pred_variance])
+    else: y = pred_noise
 
     return Model(inputs=inputs, outputs=y)
 
