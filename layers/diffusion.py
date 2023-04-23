@@ -177,7 +177,7 @@ def DiffusionTransformer(
         x = concatenate(
             [
                 x,
-                TimeEmbedding(input_shape[1])(tt)
+                TimeEmbedding(x.shape[-1])(tt)
             ], axis=1
         )
 
@@ -263,7 +263,7 @@ class DiffusionModel(Model):
 
         # Calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (
-                betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         )
         self.posterior_variance = tf.constant(posterior_variance, dtype=tf.float32)
 
