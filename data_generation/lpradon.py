@@ -207,7 +207,7 @@ class LPRadon(Layer):
                                      (1, self.n_angles * self.n_det, 1))
             out += p_sinogram
 
-        return tf.reshape(out, (1, self.n_angles, self.n_det, 1))
+        return tf.reshape(out, (self.batch_size, self.n_angles, self.n_det, 1))
 
 
 def splineB3(x2, r):
@@ -227,6 +227,7 @@ def splineB3(x2, r):
         else:
             if d[id_] < 2:
                 B3[id_] = (-d[id_] ** 3 + 6 * d[id_] ** 2 - 12 * d[id_] + 8) / 6
+
     B3f = x2 * 0
     B3f[int(np.ceil((sizex + 1) / 2.0) - ri - 1):int(np.ceil((sizex + 1) / 2.0) + ri)] = B3
     return B3f
@@ -234,39 +235,24 @@ def splineB3(x2, r):
 
 def main():
     import matplotlib.pyplot as plt
-    import h5py
-    with h5py.File("../data/ground_truth_test/ground_truth_test_000.hdf5") as f:
-        img = f['data'][0]
-        img = img[tf.newaxis, :, :, tf.newaxis]
-    test = LPRadon(1, n_span=10)
+    from perlin_noise import generate_fractal_noise_2d
+
+    img = generate_fractal_noise_2d(64, [512, 512], [2, 2], octaves=2)
+    img = tf.expand_dims(img, axis=-1)
+
+    test = LPRadon(1024, n_span=10)
+
     plt.imshow(test(img)[0], cmap='gray')
     plt.show()
 
     plt.imshow(np.reshape(test.pids[0], (test.n_angles, test.n_det)), cmap='gray')
     plt.show()
+
     plt.imshow(np.reshape(test.pids[1], (test.n_angles, test.n_det)), cmap='gray')
     plt.show()
+
     plt.imshow(np.reshape(test.pids[2], (test.n_angles, test.n_det)), cmap='gray')
     plt.show()
-    # plt.imshow(test(img)[0].numpy(), cmap='gray')
-    # plt.show()
-    # plt.imshow(test.zeta_coeffs.real, cmap='gray')
-    # plt.show()
-    #
-    # plt.scatter(x=test.lp2c1[0], y=test.lp2c2[0], s=0.01)
-    # plt.gca().set_aspect('equal')
-    # plt.show()
-    #
-    # plt.scatter(x=test.lp2c1[1], y=test.lp2c2[1], s=0.01)
-    # plt.gca().set_aspect('equal')
-    # plt.show()
-    #
-    # plt.scatter(x=test.lp2c1[2], y=test.lp2c2[2], s=0.01)
-    # plt.gca().set_aspect('equal')
-    # plt.show()
-    #
-    # plt.imshow(test.pids, aspect='auto', interpolation='nearest')
-    # plt.show()
 
 
 if __name__ == '__main__':
