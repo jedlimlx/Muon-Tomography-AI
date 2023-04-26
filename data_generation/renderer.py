@@ -45,9 +45,12 @@ class Renderer:
         return out
 
     def render_q(self, in_q: Queue, out_q: Queue):
-        while type(img := in_q.get()) is not str:
+        img = in_q.get()
+        while type(img) is not str:
             # print(np.mean(img * self.MU_MAX), np.std(img * self.MU_MAX))
             # if self.impl == "astra_cuda":
             #     img = img * self.size * 2 / self.res
             out_q.put(self.render(img))
+            img = in_q.get()
+
         out_q.put("stop")
