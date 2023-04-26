@@ -17,19 +17,26 @@ MU_MAX = 3071 * (MU_WATER - MU_AIR) / 1000 + MU_WATER
 def post_process(q):
     counter = 0
     arr = []
-    while type(render := q.get()) is not str:
+
+    render = q.get()
+    while type(render) is not str:
         arr.append(render)
         if len(arr) == 256:
             np.save(f"out1/sinograms/sinogram_{counter}.npy", np.array(arr))
             arr = []
             counter += 1
 
+        render = q.get()
+
 
 def generate_noise(block_control, q):
-    while (i := block_control.get()) != "stop":
+    i = block_control.get()
+    while i != "stop":
         block = tf.clip_by_value(generate_fractal_noise_2d(256, [256, 256], [2, 2], octaves=2) / 7 + 0.5, 0, 1).numpy()
         np.save(f"out1/ground_truth/gt_{i}.npy", block)
         q.put(block)
+
+        i = block_control.get()
 
 
 def generate_data_tf(batch_size, img_size, num_angles, num_detectors, num_photons, size):
