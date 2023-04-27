@@ -190,7 +190,7 @@ class LPRadon(Layer):
 
     def call(self, inputs, *args, **kwargs):
         b, h, w, c = inputs.shape
-        f = inputs # tf.image.pad_to_bounding_box(inputs, (self.n_det - h) // 2, (self.n_det - h) // 2, self.n_det, self.n_det)
+        f = tf.image.pad_to_bounding_box(inputs, (self.n_det - h) // 2, (self.n_det - h) // 2, self.n_det, self.n_det)
 
         out = tf.zeros((1, self.n_angles * self.n_det, 1))
         for k in range(self.n_span):
