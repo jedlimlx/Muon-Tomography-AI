@@ -145,6 +145,12 @@ class LPRadon(Layer):
         self.reshape_1 = Reshape((self.n_rho, self.n_th, 1))
         self.reshape_2 = Reshape((self.n_angles, self.n_det, 1))
 
+        # some other pre-computation stuff
+        self.e_rho = tf.reshape(tf.exp(tf.convert_to_tensor(self.rho_lp, dtype=self.dtype)), (1, -1, 1, 1))
+        self.zeta_coeffs = tf.convert_to_tensor(self.zeta_coeffs, dtype=self.complex_dtype)
+        self.pids = [tf.reshape(tf.convert_to_tensor(self.pids[k], dtype=self.dtype),
+                                (1, self.n_angles * self.n_det, 1)) for k in range(len(self.pids))]
+
     def get_lp_params(self):
         self.a_R = np.sin(self.beta / 2) / (1 + np.sin(self.beta / 2))
         self.a_m = (np.cos(self.beta / 2) - np.sin(self.beta / 2)) / (1 + np.sin(self.beta / 2))
@@ -198,19 +204,16 @@ class LPRadon(Layer):
             lp_img = self.reshape_1(tfa.image.interpolate_bilinear(f, self.lp2c[k:k + 1]))
 
             # multiply by e^rho
-            lp_img *= tf.reshape(tf.exp(tf.convert_to_tensor(self.rho_lp, dtype=self.dtype)), (1, -1, 1, 1))
+            lp_img *= self.e_rho
 
             # fft
             fft_img = tf.signal.rfft2d(tf.squeeze(lp_img, axis=-1))
-            fft_img *= tf.convert_to_tensor(self.zeta_coeffs, dtype=self.complex_dtype)
+            fft_img *= self.zeta_coeffs
 
             # ifft
             lp_sinogram = tf.expand_dims(tf.signal.irfft2d(fft_img), -1)
-
             p_sinogram = tfa.image.interpolate_bilinear(lp_sinogram, self.p2lp[k:k + 1])
-
-            p_sinogram *= tf.reshape(tf.convert_to_tensor(self.pids[k], dtype=self.dtype),
-                                     (1, self.n_angles * self.n_det, 1))
+            p_sinogram *= self.pids[k]
             out += p_sinogram
 
         return self.reshape_2(out)
