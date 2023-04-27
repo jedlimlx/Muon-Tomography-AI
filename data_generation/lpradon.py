@@ -42,6 +42,9 @@ class LPRadon(Layer):
         # self.p2lp1 = []
         # self.p2lp2 = []
 
+        self.reshape_1 = None
+        self.reshape_2 = None
+
     def build(self, input_shape):
         b, h, w, c = input_shape
         assert h == w, "Image must be square"
@@ -139,6 +142,9 @@ class LPRadon(Layer):
         if self.interp_type == 'cubic':
             self.zeta_coeffs /= self.b3_com[:, :self.n_th // 2 + 1]
 
+        self.reshape_1 = Reshape((self.n_rho, self.n_th, 1))
+        self.reshape_2 = Reshape((self.n_angles, self.n_det, 1))
+
     def get_lp_params(self):
         self.a_R = np.sin(self.beta / 2) / (1 + np.sin(self.beta / 2))
         self.a_m = (np.cos(self.beta / 2) - np.sin(self.beta / 2)) / (1 + np.sin(self.beta / 2))
@@ -189,7 +195,7 @@ class LPRadon(Layer):
         out = tf.zeros((1, self.n_angles * self.n_det, 1))
         for k in range(self.n_span):
             # interpolate to log-polar grid
-            lp_img = tf.reshape(tfa.image.interpolate_bilinear(f, self.lp2c[k:k + 1]), (b, self.n_rho, self.n_th, c))
+            lp_img = self.reshape_1(tfa.image.interpolate_bilinear(f, self.lp2c[k:k + 1]))
 
             # multiply by e^rho
             lp_img *= tf.reshape(tf.exp(tf.convert_to_tensor(self.rho_lp, dtype=self.dtype)), (1, -1, 1, 1))
@@ -207,7 +213,7 @@ class LPRadon(Layer):
                                      (1, self.n_angles * self.n_det, 1))
             out += p_sinogram
 
-        return tf.reshape(out, (self.batch_size, self.n_angles, self.n_det, 1))
+        return self.reshape_2(out)
 
 
 def splineB3(x2, r):
@@ -235,24 +241,44 @@ def splineB3(x2, r):
 
 def main():
     import matplotlib.pyplot as plt
-    from perlin_noise import generate_fractal_noise_2d
+    import h5py
+    import time
+    with h5py.File("../data/ground_truth_test/ground_truth_test_000.hdf5") as f:
+        img = f['data'][:64]
+        img = img[:, :, :, tf.newaxis]
+    print(img.shape)
 
-    img = generate_fractal_noise_2d(64, [512, 512], [2, 2], octaves=2)
-    img = tf.expand_dims(img, axis=-1)
-
-    test = LPRadon(1024, n_span=10)
-
+    test = LPRadon(1024, 513, n_span=3)
+    start_time = time.time()
     plt.imshow(test(img)[0], cmap='gray')
+    print(time.time() - start_time)
     plt.show()
 
-    plt.imshow(np.reshape(test.pids[0], (test.n_angles, test.n_det)), cmap='gray')
-    plt.show()
-
-    plt.imshow(np.reshape(test.pids[1], (test.n_angles, test.n_det)), cmap='gray')
-    plt.show()
-
-    plt.imshow(np.reshape(test.pids[2], (test.n_angles, test.n_det)), cmap='gray')
-    plt.show()
+    # plt.imshow(np.reshape(test.pids[0], (test.n_angles, test.n_det)), cmap='gray')
+    # plt.show()
+    # plt.imshow(np.reshape(test.pids[1], (test.n_angles, test.n_det)), cmap='gray')
+    # plt.show()
+    # plt.imshow(np.reshape(test.pids[2], (test.n_angles, test.n_det)), cmap='gray')
+    # plt.show()
+    # plt.imshow(test(img)[0].numpy(), cmap='gray')
+    # plt.show()
+    # plt.imshow(test.zeta_coeffs.real, cmap='gray')
+    # plt.show()
+    #
+    # plt.scatter(x=test.lp2c1[0], y=test.lp2c2[0], s=0.01)
+    # plt.gca().set_aspect('equal')
+    # plt.show()
+    #
+    # plt.scatter(x=test.lp2c1[1], y=test.lp2c2[1], s=0.01)
+    # plt.gca().set_aspect('equal')
+    # plt.show()
+    #
+    # plt.scatter(x=test.lp2c1[2], y=test.lp2c2[2], s=0.01)
+    # plt.gca().set_aspect('equal')
+    # plt.show()
+    #
+    # plt.imshow(test.pids, aspect='auto', interpolation='nearest')
+    # plt.show()
 
 
 if __name__ == '__main__':
