@@ -23,7 +23,7 @@ def generate_perlin_noise_2d(batch_size, shape, res):
     angles = tf.random.uniform(shape=(batch_size, res[0] + 1, res[1] + 1), maxval=2 * np.pi)
     gradients = tf.stack((tf.cos(angles), tf.sin(angles)), axis=-1)
 
-    print(d)
+    # print(d)
 
     gradients = tf.repeat(tf.repeat(gradients, repeats=d[0], axis=1), repeats=d[1], axis=2)
     g00 = gradients[:, :-d[0], :-d[1]]

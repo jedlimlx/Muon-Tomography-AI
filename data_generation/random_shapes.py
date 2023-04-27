@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-import skimage
+# import skimage
 
 
 def random_shapes(ds_size, h, w):

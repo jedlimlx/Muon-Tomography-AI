@@ -88,7 +88,7 @@ class LPRadon(Layer):
         tmp1 = np.outer(np.exp(np.array(self.rho_lp)), np.cos(np.array(self.th_lp))).flatten()
         tmp2 = np.outer(np.exp(np.array(self.rho_lp)), np.sin(np.array(self.th_lp))).flatten()
 
-        print(self.rho_lp.shape, self.th_lp.shape)
+        # print(self.rho_lp.shape, self.th_lp.shape)
 
         lp2c1 = []
         lp2c2 = []
@@ -110,7 +110,7 @@ class LPRadon(Layer):
             self.pids.append((th0 >= k * self.beta - self.beta / 2) &
                              (th0 < k * self.beta + self.beta / 2))
 
-        print(self.pids[0].shape)
+        # (self.pids[0].shape)
 
         p2lp1 = []
         p2lp2 = []
