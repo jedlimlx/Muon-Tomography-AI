@@ -1,7 +1,6 @@
+import numpy as np
 import tensorflow as tf
 from keras.layers import *  # todo
-import numpy as np
-import tensorflow_addons as tfa
 
 
 class LPRadon(Layer):
@@ -49,7 +48,11 @@ class LPRadon(Layer):
         b, h, w, c = input_shape
         assert h == w, "Image must be square"
         self.n = h
-        self.batch_size = b
+        self.batch_size = 64
+
+        self.height = self.n_det
+        self.width = self.n_det
+        self.channels = c
 
         self.cor = self.cor or self.n // 2
 
@@ -151,6 +154,77 @@ class LPRadon(Layer):
         self.pids = [tf.reshape(tf.convert_to_tensor(self.pids[k], dtype=self.dtype),
                                 (1, self.n_angles * self.n_det, 1)) for k in range(len(self.pids))]
 
+        # precompute interpolation stuff
+
+        # first interpolation
+        grid_shape = (self.batch_size, self.height, self.width, self.channels)
+        query_shape = tf.shape(self.lp2c[0:1])
+
+        self.num_queries = query_shape[1]
+
+        self.floors = []
+        for k in range(len(self.lp2c)):
+            floors = []
+
+            index_order = [0, 1]
+            unstacked_query_points = tf.unstack(self.lp2c[k:k + 1], axis=2, num=2)
+
+            for i, dim in enumerate(index_order):
+                queries = unstacked_query_points[dim]
+                queries = tf.cast(queries, dtype=self.dtype)
+
+                size_in_indexing_dimension = grid_shape[i + 1]
+
+                # max_floor is size_in_indexing_dimension - 2 so that max_floor + 1
+                # is still a valid index into the grid.
+                max_floor = tf.cast(size_in_indexing_dimension - 2, self.dtype)
+                min_floor = tf.constant(0.0, dtype=self.dtype)
+
+                floor = tf.math.minimum(
+                    tf.math.maximum(min_floor, tf.math.floor(queries)), max_floor
+                )
+                int_floor = tf.cast(floor, tf.int32)
+                floors.append(int_floor)
+
+            self.floors.append(floors)
+
+        # second interpolation
+        self.height_2 = int(self.n_rho)
+        self.width_2 = int(self.d_rho)
+
+        grid_shape_2 = (self.batch_size, self.height_2, self.width_2, self.channels)
+        query_shape_2 = tf.shape(self.p2lp[0:1])
+
+        self.num_queries_2 = query_shape_2[1]
+
+        self.floors_2 = []
+        self.ceils_2 = []
+        self.alphas_2 = []
+        for k in range(len(self.p2lp)):
+            floors_2 = []
+
+            index_order_2 = [0, 1]
+            unstacked_query_points_2 = tf.unstack(self.p2lp[k:k + 1], axis=2, num=2)
+
+            for i, dim in enumerate(index_order):
+                queries_2 = unstacked_query_points_2[dim]
+                queries_2 = tf.cast(queries_2, dtype=self.dtype)
+
+                size_in_indexing_dimension_2 = grid_shape_2[i + 1]
+
+                # max_floor is size_in_indexing_dimension - 2 so that max_floor + 1
+                # is still a valid index into the grid.
+                max_floor_2 = tf.cast(size_in_indexing_dimension_2 - 2, self.dtype)
+                min_floor_2 = tf.constant(0.0, dtype=self.dtype)
+
+                floor_2 = tf.math.minimum(
+                    tf.math.maximum(min_floor_2, tf.math.floor(queries_2)), max_floor_2
+                )
+                int_floor_2 = tf.cast(floor_2, tf.int32)
+                floors_2.append(int_floor_2)
+
+            self.floors_2.append(floors_2)
+
     def get_lp_params(self):
         self.a_R = np.sin(self.beta / 2) / (1 + np.sin(self.beta / 2))
         self.a_m = (np.cos(self.beta / 2) - np.sin(self.beta / 2)) / (1 + np.sin(self.beta / 2))
@@ -189,10 +263,43 @@ class LPRadon(Layer):
 
         fZ = fZ[:, n_th_large // 2 - self.n_th // 2:n_th_large // 2 + self.n_th // 2]
         fZ = fZ * (th_sp_large[1] - th_sp_large[0])
+
         # put imag to 0 for the border
         fZ[0] = 0
         fZ[:, 0] = 0
         return fZ
+
+    def interpolate(self, grid, k):
+        floors = self.floors[k]
+
+        flattened_grid = tf.reshape(grid, [self.batch_size * self.height * self.width, self.channels])
+        batch_offsets = tf.reshape(
+            tf.range(self.batch_size) * self.height * self.width, [self.batch_size, 1]
+        )
+
+        def gather(y_coords, x_coords):
+            linear_coordinates = batch_offsets + y_coords * self.width + x_coords
+            gathered_values = tf.gather(flattened_grid, linear_coordinates)
+            return tf.reshape(gathered_values, [self.batch_size, self.num_queries, self.channels])
+
+        return gather(floors[0], floors[1])
+
+    def interpolate_2(self, grid, k):
+        floors = self.floors_2[k]
+
+        flattened_grid = tf.reshape(grid, [self.batch_size * self.height_2 * self.width_2, self.channels])
+        batch_offsets = tf.reshape(
+            tf.range(self.batch_size) * self.height_2 * self.width_2, [self.batch_size, 1]
+        )
+
+        def gather(y_coords, x_coords):
+            linear_coordinates = batch_offsets + y_coords * self.width_2 + x_coords
+            gathered_values = tf.gather(flattened_grid, linear_coordinates)
+            return tf.reshape(gathered_values, [self.batch_size, self.num_queries_2, self.channels])
+
+        # grab the pixel values in the 4 corners around each query point
+        top_left = gather(floors[0], floors[1])
+        return top_left
 
     def call(self, inputs, *args, **kwargs):
         b, h, w, c = inputs.shape
@@ -201,7 +308,10 @@ class LPRadon(Layer):
         out = tf.zeros((1, self.n_angles * self.n_det, 1))
         for k in range(self.n_span):
             # interpolate to log-polar grid
-            lp_img = self.reshape_1(tfa.image.interpolate_bilinear(f, self.lp2c[k:k + 1]))
+            # index = tf.repeat(tf.math.maximum(tf.cast(tf.floor(self.lp2c[k:k+1]), dtype=tf.int32), 0), 64, axis=0)
+            # lp_img = self.reshape_1(tf.gather_nd(tf.expand_dims(f, axis=-1), indices=index, batch_dims=1))
+
+            lp_img = self.reshape_1(self.interpolate(f, k))
 
             # multiply by e^rho
             lp_img *= self.e_rho
@@ -212,7 +322,7 @@ class LPRadon(Layer):
 
             # ifft
             lp_sinogram = tf.expand_dims(tf.signal.irfft2d(fft_img), -1)
-            p_sinogram = tfa.image.interpolate_bilinear(lp_sinogram, self.p2lp[k:k + 1])
+            p_sinogram = self.interpolate_2(lp_sinogram, k)
             p_sinogram *= self.pids[k]
             out += p_sinogram
 
