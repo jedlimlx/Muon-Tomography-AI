@@ -268,7 +268,9 @@ class LPRadon(Layer):
         fZ[:, 0] = 0
         return fZ
 
-    def interpolate(self, grid, k, batch_size):
+    def interpolate(self, grid, k):
+        batch_size = tf.shape(grid)[0]
+
         floors = self.floors[k]
 
         flattened_grid = tf.reshape(grid, [-1, self.channels])
@@ -283,7 +285,9 @@ class LPRadon(Layer):
 
         return gather(floors[0], floors[1])
 
-    def interpolate_2(self, grid, k, batch_size):
+    def interpolate_2(self, grid, k):
+        batch_size = tf.shape(grid)[0]
+
         floors = self.floors_2[k]
 
         flattened_grid = tf.reshape(grid, [-1, self.channels])
@@ -308,7 +312,7 @@ class LPRadon(Layer):
         out = tf.zeros((1, self.n_angles * self.n_det, 1))
         for k in range(self.n_span):
             # interpolate to log-polar grid
-            lp_img = self.reshape_1(self.interpolate(f, k, 64))
+            lp_img = self.reshape_1(self.interpolate(f, k))
 
             # multiply by e^rho
             lp_img *= self.e_rho
