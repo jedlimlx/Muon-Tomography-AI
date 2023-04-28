@@ -48,7 +48,6 @@ class LPRadon(Layer):
         b, h, w, c = input_shape
         assert h == w, "Image must be square"
         self.n = h
-        self.batch_size = 64
 
         self.height = self.n_det
         self.width = self.n_det
@@ -56,9 +55,6 @@ class LPRadon(Layer):
 
         self.cor = self.cor or self.n // 2
 
-        self.pre_compute()
-
-    def pre_compute(self):
         self.beta = np.pi / self.n_span
 
         # expand the image so that we have enough room to rotate
@@ -145,8 +141,8 @@ class LPRadon(Layer):
         if self.interp_type == 'cubic':
             self.zeta_coeffs /= self.b3_com[:, :self.n_th // 2 + 1]
 
-        self.reshape_1 = Reshape((self.n_rho, self.n_th, 1))
-        self.reshape_2 = Reshape((self.n_angles, self.n_det, 1))
+        self.reshape_1 = Reshape((self.n_rho, self.n_th, 1), name="reshape_1")
+        self.reshape_2 = Reshape((self.n_angles, self.n_det, 1), name="reshape_2")
 
         # some other pre-computation stuff
         self.e_rho = tf.reshape(tf.exp(tf.convert_to_tensor(self.rho_lp, dtype=self.dtype)), (1, -1, 1, 1))
@@ -157,14 +153,14 @@ class LPRadon(Layer):
         # precompute interpolation stuff
 
         # first interpolation
-        grid_shape = (self.batch_size, self.height, self.width, self.channels)
+        grid_shape = (self.height, self.width)
         query_shape = tf.shape(self.lp2c[0:1])
 
         self.num_queries = query_shape[1]
 
-        self.floors = []
+        self.floors = []  # tf.TensorArray(tf.int32, size=len(self.lp2c), dynamic_size=False)
         for k in range(len(self.lp2c)):
-            floors = []
+            floors = []  # tf.TensorArray(tf.int32, size=2, dynamic_size=False)
 
             index_order = [0, 1]
             unstacked_query_points = tf.unstack(self.lp2c[k:k + 1], axis=2, num=2)
@@ -173,7 +169,7 @@ class LPRadon(Layer):
                 queries = unstacked_query_points[dim]
                 queries = tf.cast(queries, dtype=self.dtype)
 
-                size_in_indexing_dimension = grid_shape[i + 1]
+                size_in_indexing_dimension = grid_shape[i]
 
                 # max_floor is size_in_indexing_dimension - 2 so that max_floor + 1
                 # is still a valid index into the grid.
@@ -186,22 +182,22 @@ class LPRadon(Layer):
                 int_floor = tf.cast(floor, tf.int32)
                 floors.append(int_floor)
 
-            self.floors.append(floors)
+            self.floors.append(tf.stack(floors))
+
+        self.floors = tf.stack(self.floors)
 
         # second interpolation
         self.height_2 = int(self.n_rho)
-        self.width_2 = int(self.d_rho)
+        self.width_2 = int(self.n_angles * self.n_det / self.n_rho)
 
-        grid_shape_2 = (self.batch_size, self.height_2, self.width_2, self.channels)
+        grid_shape_2 = (self.height_2, self.width_2)
         query_shape_2 = tf.shape(self.p2lp[0:1])
 
         self.num_queries_2 = query_shape_2[1]
 
-        self.floors_2 = []
-        self.ceils_2 = []
-        self.alphas_2 = []
+        self.floors_2 = []  # tf.TensorArray(tf.int32, size=len(self.p2lp), dynamic_size=False)
         for k in range(len(self.p2lp)):
-            floors_2 = []
+            floors_2 = []  # tf.TensorArray(tf.int32, size=2, dynamic_size=False)
 
             index_order_2 = [0, 1]
             unstacked_query_points_2 = tf.unstack(self.p2lp[k:k + 1], axis=2, num=2)
@@ -210,7 +206,7 @@ class LPRadon(Layer):
                 queries_2 = unstacked_query_points_2[dim]
                 queries_2 = tf.cast(queries_2, dtype=self.dtype)
 
-                size_in_indexing_dimension_2 = grid_shape_2[i + 1]
+                size_in_indexing_dimension_2 = grid_shape_2[i]
 
                 # max_floor is size_in_indexing_dimension - 2 so that max_floor + 1
                 # is still a valid index into the grid.
@@ -221,9 +217,12 @@ class LPRadon(Layer):
                     tf.math.maximum(min_floor_2, tf.math.floor(queries_2)), max_floor_2
                 )
                 int_floor_2 = tf.cast(floor_2, tf.int32)
+
                 floors_2.append(int_floor_2)
 
-            self.floors_2.append(floors_2)
+            self.floors_2.append(tf.stack(floors_2))
+
+        self.floors_2 = tf.stack(self.floors_2)
 
     def get_lp_params(self):
         self.a_R = np.sin(self.beta / 2) / (1 + np.sin(self.beta / 2))
@@ -269,33 +268,33 @@ class LPRadon(Layer):
         fZ[:, 0] = 0
         return fZ
 
-    def interpolate(self, grid, k):
+    def interpolate(self, grid, k, batch_size):
         floors = self.floors[k]
 
-        flattened_grid = tf.reshape(grid, [self.batch_size * self.height * self.width, self.channels])
+        flattened_grid = tf.reshape(grid, [-1, self.channels])
         batch_offsets = tf.reshape(
-            tf.range(self.batch_size) * self.height * self.width, [self.batch_size, 1]
+            tf.range(batch_size) * self.height * self.width, [-1, 1]
         )
 
         def gather(y_coords, x_coords):
             linear_coordinates = batch_offsets + y_coords * self.width + x_coords
             gathered_values = tf.gather(flattened_grid, linear_coordinates)
-            return tf.reshape(gathered_values, [self.batch_size, self.num_queries, self.channels])
+            return tf.reshape(gathered_values, [-1, self.num_queries, self.channels])
 
         return gather(floors[0], floors[1])
 
-    def interpolate_2(self, grid, k):
+    def interpolate_2(self, grid, k, batch_size):
         floors = self.floors_2[k]
 
-        flattened_grid = tf.reshape(grid, [self.batch_size * self.height_2 * self.width_2, self.channels])
+        flattened_grid = tf.reshape(grid, [-1, self.channels])
         batch_offsets = tf.reshape(
-            tf.range(self.batch_size) * self.height_2 * self.width_2, [self.batch_size, 1]
+            tf.range(batch_size) * self.height_2 * self.width_2, [-1, 1]
         )
 
         def gather(y_coords, x_coords):
             linear_coordinates = batch_offsets + y_coords * self.width_2 + x_coords
             gathered_values = tf.gather(flattened_grid, linear_coordinates)
-            return tf.reshape(gathered_values, [self.batch_size, self.num_queries_2, self.channels])
+            return tf.reshape(gathered_values, [-1, self.num_queries_2, self.channels])
 
         # grab the pixel values in the 4 corners around each query point
         top_left = gather(floors[0], floors[1])
@@ -303,15 +302,13 @@ class LPRadon(Layer):
 
     def call(self, inputs, *args, **kwargs):
         b, h, w, c = inputs.shape
+
         f = tf.image.pad_to_bounding_box(inputs, (self.n_det - h) // 2, (self.n_det - h) // 2, self.n_det, self.n_det)
 
         out = tf.zeros((1, self.n_angles * self.n_det, 1))
         for k in range(self.n_span):
             # interpolate to log-polar grid
-            # index = tf.repeat(tf.math.maximum(tf.cast(tf.floor(self.lp2c[k:k+1]), dtype=tf.int32), 0), 64, axis=0)
-            # lp_img = self.reshape_1(tf.gather_nd(tf.expand_dims(f, axis=-1), indices=index, batch_dims=1))
-
-            lp_img = self.reshape_1(self.interpolate(f, k))
+            lp_img = self.reshape_1(self.interpolate(f, k, 64))
 
             # multiply by e^rho
             lp_img *= self.e_rho
