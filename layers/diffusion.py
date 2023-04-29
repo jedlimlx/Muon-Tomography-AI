@@ -208,15 +208,88 @@ def DiffusionTransformer(
     return Model(inputs=inputs, outputs=y)
 
 
+def mean_flat(tensor):
+    """
+    Take the mean over all non-batch dimensions.
+    """
+    return tf.math.reduce_mean(tensor, axis=range(1, len(tensor.shape)))
+
+
+def normal_kl(mean1, logvar1, mean2, logvar2):
+    """
+    Compute the KL divergence between two gaussians.
+    Shapes are automatically broadcasted, so batches can be compared to
+    scalars, among other use cases.
+    """
+
+    return 0.5 * (
+            -1.0
+            + logvar2
+            - logvar1
+            + tf.math.exp(logvar1 - logvar2)
+            + ((mean1 - mean2) ** 2) * tf.math.exp(-logvar2)
+    )
+
+
+def approx_standard_normal_cdf(x):
+    """
+    A fast approximation of the cumulative distribution function of the
+    standard normal.
+    """
+    return 0.5 * (1.0 + tf.math.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.math.pow(x, 3))))
+
+
+def discretized_gaussian_log_likelihood(x, *, means, log_scales):
+    """
+    Compute the log-likelihood of a Gaussian distribution discretizing to a
+    given image.
+    :param x: the target images. It is assumed that this was uint8 values,
+              rescaled to the range [-1, 1].
+    :param means: the Gaussian mean Tensor.
+    :param log_scales: the Gaussian log stddev Tensor.
+    :return: a tensor like x of log probabilities (in nats).
+    """
+    assert x.shape == means.shape == log_scales.shape
+    centered_x = x - means
+    inv_stdv = tf.math.exp(-log_scales)
+    plus_in = inv_stdv * (centered_x + 1.0 / 255.0)
+    cdf_plus = approx_standard_normal_cdf(plus_in)
+    min_in = inv_stdv * (centered_x - 1.0 / 255.0)
+    cdf_min = approx_standard_normal_cdf(min_in)
+    log_cdf_plus = tf.math.log(tf.clip_by_value(cdf_plus, 1e-12, 1e+12))
+    log_one_minus_cdf_min = tf.math.log(tf.clip_by_value(1.0 - cdf_min, 1e-12, 1e+12))
+    cdf_delta = cdf_plus - cdf_min
+    log_probs = tf.where(
+        x < -0.999,
+        log_cdf_plus,
+        tf.where(x > 0.999, log_one_minus_cdf_min, tf.math.log(tf.clip_by_value(cdf_delta, 1e-12, 1e+12))),
+    )
+
+    assert log_probs.shape == x.shape
+    return log_probs
+
+
 class DiffusionModel(Model):
     """
     Implements a diffusion model for solving linear inverse problems
     """
 
-    def __init__(self, model, timesteps=1000, covariance="fixed", *args, **kwargs):
+    def __init__(
+        self, model: Model, radon_transform: Model,
+        timesteps=1000, covariance="fixed", prediction="noise",
+        vlb_weight=1e-5, radon=False, *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.timesteps = timesteps
         self.covariance = covariance
+        self.prediction = prediction
+        self.vlb_weight = vlb_weight
+
+        self.radon = radon
+        self.radon_transform = radon_transform
+
+        self.min_timestep = 0
+        self.max_timestep = timesteps - 1
 
         self.model = model
 
@@ -229,7 +302,7 @@ class DiffusionModel(Model):
         s = 0.008
         temp = np.array(
             [np.cos((t / self.num_timesteps + s) / (1 + s) * math.pi / 2) ** 2 for t in range(self.num_timesteps)])
-        betas = np.array([0 if x == 0 else min(1 - temp[x] / temp[x - 1], 0.999) for x in range(self.num_timesteps)])
+        betas = np.array([1e-8 if x == 0 else min(1 - temp[x] / temp[x - 1], 0.999) for x in range(self.num_timesteps)])
 
         alphas = 1.0 - betas
         self.alphas = tf.constant(alphas, dtype=tf.float32)
@@ -238,6 +311,7 @@ class DiffusionModel(Model):
         alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
 
         self.betas = tf.constant(betas, dtype=tf.float32)
+        self.log_betas = tf.cast(tf.math.log(betas), dtype=tf.float32)
         self.alphas_cumprod = tf.constant(alphas_cumprod, dtype=tf.float32)
         self.alphas_cumprod_prev = tf.constant(alphas_cumprod_prev, dtype=tf.float32)
 
@@ -263,7 +337,7 @@ class DiffusionModel(Model):
 
         # Calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (
-            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+                betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         )
         self.posterior_variance = tf.constant(posterior_variance, dtype=tf.float32)
 
@@ -283,7 +357,11 @@ class DiffusionModel(Model):
             dtype=tf.float32,
         )
 
-        self.loss_tracker = keras.metrics.Mean(name='loss')
+        # Weight loss by how important the model's output is at that time-step
+        self.weighting = (self.alphas_cumprod_prev / self.alphas_cumprod * (1 - self.alphas_cumprod)) ** 0.5
+
+        self.l_simple_tracker = keras.metrics.Mean(name='l_simple')
+        self.l_vlb_tracker = keras.metrics.Mean(name='l_vlb')
 
     def call(self, inputs, *args, **kwargs):
         return self.model(inputs, *args, **kwargs)
@@ -391,24 +469,30 @@ class DiffusionModel(Model):
             min_log = self._extract(
                 self.posterior_log_variance_clipped, t, tf.shape(x)
             )
-            max_log = self._extract(np.log(self.betas), t, tf.shape(x))
+            max_log = self._extract(self.log_betas, t, tf.shape(x))
 
             # The model_var_values is [-1, 1] for [min_var, max_var].
             frac = (pred_variance + 1) / 2
             model_log_variance = frac * max_log + (1 - frac) * min_log
             model_variance = tf.math.exp(model_log_variance)
 
-            x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
-            if clip_denoised:
-                x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+            if self.prediction == "noise":
+                x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
+                if clip_denoised:
+                    x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+            else:
+                x_recon = pred_noise
 
             model_mean, _, _ = self.q_posterior(
                 x_start=x_recon, x_t=x, t=t
             )
         else:
-            x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
-            if clip_denoised:
-                x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+            if self.prediction == "noise":
+                x_recon = self.predict_start_from_noise(x, t=t, noise=pred_noise)
+                if clip_denoised:
+                    x_recon = tf.clip_by_value(x_recon, self.clip_min, self.clip_max)
+            else:
+                x_recon = pred_noise
 
             model_mean, model_variance, model_log_variance = self.q_posterior(
                 x_start=x_recon, x_t=x, t=t
@@ -438,46 +522,87 @@ class DiffusionModel(Model):
         )
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
-    def diffusion_loss(self, tt, noise_true, noise_pred):
+    def diffusion_loss(self, t, x_start, x_t, noise_true, model_out):
         if self.covariance == "learned":
-            noise_pred, covariance = tf.split(noise_pred, 2, axis=-1)
+            noise_pred, covariance = tf.split(model_out, 2, axis=-1)
+            if self.prediction == "gt":
+                gt_pred = noise_pred
+                l_simple = tf.reduce_mean(tf.square(x_start - gt_pred), axis=-1)  # L_simple
+            else:
+                l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
 
-            min_log = self._extract(self.posterior_log_variance_clipped, tt, tf.shape(noise_true))
-            max_log = self._extract(np.log(self.betas), tt, tf.shape(noise_true))
+            # computing the variational lower bound
+            t = t[:, 0]
 
-            frac = (covariance + 1) / 2
-            model_log_variance = frac * max_log + (1 - frac) * min_log
-            model_variance = tf.math.exp(model_log_variance)
+            true_mean, _, true_log_variance_clipped = self.q_posterior(
+                x_start=x_start, x_t=x_t, t=t
+            )
+            mean, variance, log_variance = self.p_mean_variance(model_out, x_t, t)
 
-            l_simple = tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
-            l_vlb = (1 - self._extract(self.alphas, tt, tf.shape(noise_pred))) ** 2 / \
-                    (2 * self._extract(self.alphas, tt, tf.shape(noise_pred)) *
-                     (1 - self._extract(self.alphas_cumprod, tt, tf.shape(noise_pred))) *
-                     tf.norm(model_variance, axis=-1) + 1e-8) * \
-                    tf.stop_gradient(l_simple)  # L_vlb
-            return l_simple + 0.001 * l_vlb
+            kl = normal_kl(true_mean, true_log_variance_clipped, mean, log_variance)
+            kl = mean_flat(kl) / np.log(2.0)
+
+            decoder_nll = -discretized_gaussian_log_likelihood(
+                x_start, means=mean, log_scales=0.5 * log_variance
+            )
+            decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+
+            # At the first timestep return the decoder NLL,
+            # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+            l_vlb = tf.where(t == 0, decoder_nll, kl)
+            return l_simple, tf.reduce_mean(l_vlb)
         else:
-            return tf.reduce_mean(tf.square(noise_true - noise_pred), axis=-1)  # L_simple
+            if self.prediction == "noise":
+                x_start_pred = self.predict_start_from_noise(x_t, t, model_out)
+                return tf.reduce_mean(tf.square(noise_true - model_out), axis=-1) + \
+                       0.01 * tf.reduce_mean(tf.square(x_start - x_start_pred), axis=-1), 0
+            else:
+                return tf.reduce_mean(tf.square(x_start - model_out), axis=-1), 0
+
+    def preprocess_data(self, sinogram, gt):
+        # some rescaling
+        sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+        sinogram = tf.image.resize(sinogram, (1024, 512), method="bilinear")
+
+        gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
+        gt = tf.image.resize(gt, (512, 512))
+
+        return sinogram, gt
 
     def train_step(self, data):
-        # Unpack the data. Its structure depends on your model and
-        # on what you pass to `fit()`.
         x, y = data
 
-        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=1, maxval=self.timesteps)
+        if self.radon:
+            # apply radon transform
+            sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
+            sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
+
+            # preprocess data
+            sinogram, y = self.preprocess_data(sinogram[:, :, ::-1, -1], y)
+            x = (sinogram, x[1], x[2])
+        else:
+            # preprocess data
+            sinogram, y = self.preprocess_data(x[0], y)
+            x = (sinogram, x[1], x[2])
+
+        # generating timesteps
+        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=self.min_timestep, maxval=self.max_timestep)
         t = tf.cast(tf.math.floor(t), tf.int32)
+
+        # adding noise to the gt
         noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
         inputt = self.q_sample(y, t, noise)
 
         with tf.GradientTape() as tape:
-            y_pred = self((*x, inputt, t), training=True)  # Forward pass
+            y_pred = self.model((*x, inputt, t / self.num_timesteps), training=True)  # Forward pass
 
             # Compute the loss value
             # (the loss function is configured in `compile()`)
-            loss = self.diffusion_loss(t, noise, y_pred)
+            l_simple, l_vlb = self.diffusion_loss(t, y, inputt, noise, y_pred)
+            loss = l_simple + self.vlb_weight * l_vlb
 
         # Compute gradients
-        trainable_vars = self.trainable_variables
+        trainable_vars = self.model.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
 
         # Update weights
@@ -485,7 +610,41 @@ class DiffusionModel(Model):
 
         # Update metrics (includes the metric that tracks the loss)
         self.compiled_metrics.update_state(noise, y_pred)
-        self.loss_tracker.update_state(loss)
+        self.l_simple_tracker.update_state(l_simple)
+        self.l_vlb_tracker.update_state(l_vlb)
+
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        x, y = data
+
+        # don't apply radon transform, we use real data for testing
+        # x[0] = radon(y, training=False)
+        # x[0] = tf.clip_by_value(x[0], 0, 10) * 0.46451485
+
+        # preprocess data
+        sinogram, y = self.preprocess_data(x[0], y)
+        x = (sinogram, x[1], x[2])
+
+        # generating timesteps
+        t = tf.random.uniform((tf.shape(y)[0], 1,), minval=self.min_timestep, maxval=self.max_timestep)
+        t = tf.cast(tf.math.floor(t), tf.int32)
+
+        # adding noise to the gt
+        noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
+        inputt = self.q_sample(y, t, noise)
+
+        y_pred = self.model((*x, inputt, t / self.num_timesteps), training=False)  # Forward pass
+
+        # Compute the loss value
+        # (the loss function is configured in `compile()`)
+        l_simple, l_vlb = self.diffusion_loss(t, y, inputt, noise, y_pred)
+
+        # Update metrics (includes the metric that tracks the loss)
+        self.compiled_metrics.update_state(noise, y_pred)
+        self.l_simple_tracker.update_state(l_simple)
+        self.l_vlb_tracker.update_state(l_vlb)
 
         # Return a dict mapping metric names to current value
         return {m.name: m.result() for m in self.metrics}
@@ -499,7 +658,6 @@ class DiffusionModel(Model):
         :return: Returns the generated samples
         """
         sample_lst = []
-        noise_lst = []
 
         num_images = tf.shape(sinogram)[0]
 
@@ -509,63 +667,49 @@ class DiffusionModel(Model):
         )
 
         # 2. Sample from the model iteratively
-        for t in tqdm(list(reversed(range(1, self.num_timesteps)))):
-            tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
+        for t in tqdm(list(reversed(range(0, self.num_timesteps)))):
+            tt = tf.cast(tf.fill([num_images], t), dtype=tf.int64)
             pred_noise = self.model.predict(
-                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt / self.num_timesteps, axis=-1)],
                 verbose=0
             )
+
             samples = self.p_sample(
                 pred_noise, samples, tt, clip_denoised=True
             )
             sample_lst.append(samples)
-            noise_lst.append(pred_noise)
 
         # 3. Return generated samples
-        return sample_lst, noise_lst
+        return sample_lst
+
+    def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
+        sample_lst = []
+
+        num_images = tf.shape(sinogram)[0]
+
+        # 1. Randomly sample noise (starting point for reverse process)
+        samples = gt
+
+        # 2. Sample from the model iteratively
+        for t in tqdm(list(reversed(range(1, start_time)))):
+            tt = tf.cast(tf.fill([num_images], t), dtype=tf.int64)
+
+            pred_noise = self.model.predict(
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt / self.num_timesteps, axis=-1)],
+                verbose=0
+            )
+
+            samples = self.p_sample(
+                pred_noise, samples, tt, clip_denoised=True
+            )
+            sample_lst.append(samples)
+
+        # 3. Return generated samples
+        return sample_lst
 
     @property
     def metrics(self):
-        return [*super(DiffusionModel, self).metrics, self.loss_tracker]
-
-    # def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
-    #     """
-    #     Generates a stochastic sample from the diffusion model starting from a timestep t
-    #     :param sinogram: The sinogram y that the model uses as a condition
-    #     :param mask_indices: The indices of the sinogram to mask
-    #     :param unmask_indices: The indices of the sinogram to keep unmasked
-    #     :param gt: The noised image at the timestep t
-    #     :param start_time: The timestep t to start from
-    #     :return: Returns the generated samples
-    #     """
-    #     sample_lst = []
-    #     noise_lst = []
-    #
-    #     num_images = tf.shape(sinogram)[0]
-    #
-    #     # 1. Randomly sample noise (starting point for reverse process)
-    #     t = tf.ones(shape=(len(sinogram), 1,)) * start_time
-    #     t = tf.cast(t, tf.int32)
-    #
-    #     noise = tf.random.normal((len(sinogram), 512, 512, 1))
-    #     samples = self.q_sample(gt, t, noise)
-    #     samples_original = samples
-    #
-    #     # 2. Sample from the model iteratively
-    #     for t in tqdm(list(reversed(range(1, start_time)))):
-    #         tt = tf.cast(tf.fill(num_images, t), dtype=tf.int64)
-    #         pred_noise = self.predict(
-    #             [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt, axis=-1)],
-    #             verbose=0
-    #         )
-    #         samples = self.p_sample(
-    #             pred_noise, samples, tt, clip_denoised=True
-    #         )
-    #         sample_lst.append(samples)
-    #         noise_lst.append(pred_noise)
-    #
-    #     # 3. Return generated samples
-    #     return sample_lst, noise_lst, samples_original
+        return [*super(DiffusionModel, self).metrics, self.l_simple_tracker, self.l_vlb_tracker]
 
 
 if __name__ == "__main__":
