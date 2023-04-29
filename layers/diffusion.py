@@ -279,12 +279,13 @@ def preprocess_data(sinogram, gt):
 
     return sinogram, gt
 
+
 def add_noise(img, dose=4096):
-    img = dose * tf.math.exp(-0.0584760875172971 * img)
+    img = dose * tf.math.exp(img)
 
     img = img + tf.random.normal(shape=tf.shape(img), mean=0.0, stddev=dose ** 0.5, dtype=tf.float32)
     img = tf.clip_by_value(img / dose, 0.1 / dose, tf.float32.max)
-    img = -tf.math.log(img) / 81.35858
+    img = -tf.math.log(img)
     return img
 
 
@@ -543,6 +544,39 @@ class DiffusionModel(Model):
         )
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
+    @tf.function
+    def ddim_sample(self, pred_noise, x, t, clip_denoised=True, eta=0):
+        if self.prediction == "noise": raise NotImplementedError
+
+        model_mean, _, model_log_variance = self.p_mean_variance(
+            pred_noise, x=x, t=t, clip_denoised=clip_denoised
+        )
+
+        eps = (
+            self._extract(self.sqrt_recip_alphas_cumprod, t, x.shape) * x - pred_noise
+        ) / self._extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape)
+
+        alpha_bar = self._extract(self.alphas_cumprod, t, x.shape)
+        alpha_bar_prev = self._extract(self.alphas_cumprod_prev, t, x.shape)
+        sigma = (
+            eta
+            * tf.math.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
+            * tf.math.sqrt(1 - alpha_bar / alpha_bar_prev)
+        )
+
+        # Equation 12.
+        noise = tf.random.normal(tf.shape(x))
+        mean_pred = (
+            pred_noise * tf.math.sqrt(alpha_bar_prev)
+            + tf.math.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+        )
+
+        nonzero_mask = (
+            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        )  # no noise when t == 0
+
+        return mean_pred + nonzero_mask * sigma * noise
+
     def diffusion_loss(self, t, x_start, x_t, noise_true, model_out):
         if self.covariance == "learned":
             noise_pred, covariance = tf.split(model_out, 2, axis=-1)
@@ -589,8 +623,8 @@ class DiffusionModel(Model):
             sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
 
             # preprocess data
-            sinogram, y = preprocess_data(sinogram[:, :, ::-1, -1], y)
             sinogram = add_noise(sinogram, dose=self.dose)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
             x = (sinogram, x[1], x[2])
         else:
             # preprocess data
@@ -663,7 +697,7 @@ class DiffusionModel(Model):
 
     def stochastic_sample(self, sinogram, mask_indices, unmask_indices):
         """
-        Generates a stochastic sample from the diffusion model
+        Generates a stochastic sample from the diffusion model (DDPM sampling)
         :param sinogram: The sinogram y that the model uses as a condition
         :param mask_indices: The indices of the sinogram to mask
         :param unmask_indices: The indices of the sinogram to keep unmasked
@@ -695,7 +729,37 @@ class DiffusionModel(Model):
         return sample_lst
 
     def deterministic_sample(self, sinogram, mask_indices, unmask_indices):
-        pass
+        """
+        Generates a deterministic sample from the diffusion model (DDIM sampling)
+        :param sinogram: The sinogram y that the model uses as a condition
+        :param mask_indices: The indices of the sinogram to mask
+        :param unmask_indices: The indices of the sinogram to keep unmasked
+        :return: Returns the generated samples
+        """
+        sample_lst = []
+
+        num_images = tf.shape(sinogram)[0]
+
+        # 1. Randomly sample noise (starting point for reverse process)
+        samples = tf.random.normal(
+            shape=(num_images, 512, 512, 1), dtype=tf.float32
+        )
+
+        # 2. Sample from the model iteratively
+        for t in tqdm(list(reversed(range(0, self.num_timesteps)))):
+            tt = tf.cast(tf.fill([num_images], t), dtype=tf.int64)
+            pred_noise = self.model.predict(
+                [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt / self.num_timesteps, axis=-1)],
+                verbose=0
+            )
+
+            samples = self.ddim_sample(
+                pred_noise, samples, tt, clip_denoised=True
+            )
+            sample_lst.append(samples)
+
+        # 3. Return generated samples
+        return sample_lst
 
     def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
         sample_lst = []
