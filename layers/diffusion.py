@@ -269,6 +269,25 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
     return log_probs
 
 
+def preprocess_data(sinogram, gt):
+    # some rescaling
+    sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+    sinogram = tf.image.resize(sinogram, (1024, 512), method="bilinear")
+
+    gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
+    gt = tf.image.resize(gt, (512, 512))
+
+    return sinogram, gt
+
+def add_noise(img, dose=4096):
+    img = dose * tf.math.exp(-0.0584760875172971 * img)
+
+    img = img + tf.random.normal(shape=tf.shape(img), mean=0.0, stddev=dose ** 0.5, dtype=tf.float32)
+    img = tf.clip_by_value(img / dose, 0.1 / dose, tf.float32.max)
+    img = -tf.math.log(img) / 81.35858
+    return img
+
+
 class DiffusionModel(Model):
     """
     Implements a diffusion model for solving linear inverse problems
@@ -277,7 +296,7 @@ class DiffusionModel(Model):
     def __init__(
         self, model: Model, radon_transform: Model,
         timesteps=1000, covariance="fixed", prediction="noise",
-        vlb_weight=1e-5, radon=False, *args, **kwargs
+        vlb_weight=1e-5, radon=False, dose=4096, *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.timesteps = timesteps
@@ -287,6 +306,8 @@ class DiffusionModel(Model):
 
         self.radon = radon
         self.radon_transform = radon_transform
+
+        self.dose = dose
 
         self.min_timestep = 0
         self.max_timestep = timesteps - 1
@@ -559,16 +580,6 @@ class DiffusionModel(Model):
             else:
                 return tf.reduce_mean(tf.square(x_start - model_out), axis=-1), 0
 
-    def preprocess_data(self, sinogram, gt):
-        # some rescaling
-        sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
-        sinogram = tf.image.resize(sinogram, (1024, 512), method="bilinear")
-
-        gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
-        gt = tf.image.resize(gt, (512, 512))
-
-        return sinogram, gt
-
     def train_step(self, data):
         x, y = data
 
@@ -578,11 +589,12 @@ class DiffusionModel(Model):
             sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
 
             # preprocess data
-            sinogram, y = self.preprocess_data(sinogram[:, :, ::-1, -1], y)
+            sinogram, y = preprocess_data(sinogram[:, :, ::-1, -1], y)
+            sinogram = add_noise(sinogram, dose=self.dose)
             x = (sinogram, x[1], x[2])
         else:
             # preprocess data
-            sinogram, y = self.preprocess_data(x[0], y)
+            sinogram, y = preprocess_data(x[0], y)
             x = (sinogram, x[1], x[2])
 
         # generating timesteps
@@ -624,7 +636,7 @@ class DiffusionModel(Model):
         # x[0] = tf.clip_by_value(x[0], 0, 10) * 0.46451485
 
         # preprocess data
-        sinogram, y = self.preprocess_data(x[0], y)
+        sinogram, y = preprocess_data(x[0], y)
         x = (sinogram, x[1], x[2])
 
         # generating timesteps
@@ -681,6 +693,9 @@ class DiffusionModel(Model):
 
         # 3. Return generated samples
         return sample_lst
+
+    def deterministic_sample(self, sinogram, mask_indices, unmask_indices):
+        pass
 
     def test_stochastic_sample(self, sinogram, mask_indices, unmask_indices, gt, start_time):
         sample_lst = []
