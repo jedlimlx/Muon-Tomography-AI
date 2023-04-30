@@ -297,7 +297,7 @@ class DiffusionModel(Model):
     def __init__(
         self, model: Model, radon_transform: Model,
         timesteps=1000, covariance="fixed", prediction="noise",
-        vlb_weight=1e-5, radon=False, dose=4096, *args, **kwargs
+        vlb_weight=1e-5, radon=False, dose=4096, gamma=0.1, *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.timesteps = timesteps
@@ -309,6 +309,7 @@ class DiffusionModel(Model):
         self.radon_transform = radon_transform
 
         self.dose = dose
+        self.gamma = gamma
 
         self.min_timestep = 0
         self.max_timestep = timesteps - 1
@@ -359,7 +360,7 @@ class DiffusionModel(Model):
 
         # Calculations for posterior q(x_{t-1} | x_t, x_0)
         posterior_variance = (
-                betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
         )
         self.posterior_variance = tf.constant(posterior_variance, dtype=tf.float32)
 
@@ -545,8 +546,9 @@ class DiffusionModel(Model):
         return model_mean + nonzero_mask * tf.exp(0.5 * model_log_variance) * noise
 
     @tf.function
-    def ddim_sample(self, pred_noise, x, t, clip_denoised=True, eta=0):
+    def ddim_sample(self, pred_noise, x, t, new_t=None, clip_denoised=True, eta=0):
         if self.prediction == "noise": raise NotImplementedError
+        if new_t is None: new_t = t - 1
 
         model_mean, _, model_log_variance = self.p_mean_variance(
             pred_noise, x=x, t=t, clip_denoised=clip_denoised
@@ -557,7 +559,7 @@ class DiffusionModel(Model):
         ) / self._extract(self.sqrt_recipm1_alphas_cumprod, t, x.shape)
 
         alpha_bar = self._extract(self.alphas_cumprod, t, x.shape)
-        alpha_bar_prev = self._extract(self.alphas_cumprod_prev, t, x.shape)
+        alpha_bar_prev = self._extract(self.alphas_cumprod, new_t, x.shape)
         sigma = (
             eta
             * tf.math.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
@@ -638,6 +640,9 @@ class DiffusionModel(Model):
         # adding noise to the gt
         noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
         inputt = self.q_sample(y, t, noise)
+
+        # additional noise added to simulate error in predictions
+        inputt = self.gamma * tf.random.normal((tf.shape(y)[0], 512, 512, 1)) + inputt
 
         with tf.GradientTape() as tape:
             y_pred = self.model((*x, inputt, t / self.num_timesteps), training=True)  # Forward pass
@@ -728,7 +733,7 @@ class DiffusionModel(Model):
         # 3. Return generated samples
         return sample_lst
 
-    def deterministic_sample(self, sinogram, mask_indices, unmask_indices):
+    def deterministic_sample(self, sinogram, mask_indices, unmask_indices, timesteps=None):
         """
         Generates a deterministic sample from the diffusion model (DDIM sampling)
         :param sinogram: The sinogram y that the model uses as a condition
@@ -736,6 +741,8 @@ class DiffusionModel(Model):
         :param unmask_indices: The indices of the sinogram to keep unmasked
         :return: Returns the generated samples
         """
+        if timesteps is None: timesteps = list(reversed(range(0, self.num_timesteps)))
+
         sample_lst = []
 
         num_images = tf.shape(sinogram)[0]
@@ -746,15 +753,16 @@ class DiffusionModel(Model):
         )
 
         # 2. Sample from the model iteratively
-        for t in tqdm(list(reversed(range(0, self.num_timesteps)))):
+        for i, t in tqdm(enumerate(timesteps)):
             tt = tf.cast(tf.fill([num_images], t), dtype=tf.int64)
+            tt_new = tf.cast(tf.fill([num_images], timesteps[i + 1]), dtype=tf.int64)
             pred_noise = self.model.predict(
                 [sinogram, mask_indices, unmask_indices, samples, tf.expand_dims(tt / self.num_timesteps, axis=-1)],
                 verbose=0
             )
 
             samples = self.ddim_sample(
-                pred_noise, samples, tt, clip_denoised=True
+                pred_noise, samples, tt, new_t=tt_new, clip_denoised=True
             )
             sample_lst.append(samples)
 
