@@ -297,7 +297,7 @@ class DiffusionModel(Model):
     def __init__(
         self, model: Model, radon_transform: Model,
         timesteps=1000, covariance="fixed", prediction="noise",
-        vlb_weight=1e-5, radon=False, dose=4096, gamma=0.1, *args, **kwargs
+        vlb_weight=1e-5, radon=False, dose=4096, gamma=0.05, *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.timesteps = timesteps
@@ -642,7 +642,8 @@ class DiffusionModel(Model):
         inputt = self.q_sample(y, t, noise)
 
         # additional noise added to simulate error in predictions
-        inputt = self.gamma * tf.random.normal((tf.shape(y)[0], 512, 512, 1)) + inputt
+        inputt = tf.random.normal((tf.shape(y)[0],), minval=-self.gamma, maxval=self.gamma) * \
+                 tf.random.normal((tf.shape(y)[0], 512, 512, 1)) + inputt
 
         with tf.GradientTape() as tape:
             y_pred = self.model((*x, inputt, t / self.num_timesteps), training=True)  # Forward pass
