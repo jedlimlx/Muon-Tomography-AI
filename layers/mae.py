@@ -206,8 +206,7 @@ class MAE(Model):
 
     def train_step(self, data):
         if self.radon:
-            img, _, _ = data
-            sinogram = self.radon_transform(img, training=False)
+            sinogram = self.radon_transform(data, training=False)
             sinogram = add_noise(sinogram, dose=4096)
             sinogram = tf.clip_by_value(sinogram, 0, 10)
             sinogram = sinogram[:, ::-1, ::-1, 0] * 0.46451485
@@ -215,7 +214,7 @@ class MAE(Model):
             sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
             sinogram = tf.image.resize(sinogram, (1024, 513))
 
-            data = (sinogram, data[1], data[2])
+            data = sinogram
 
         with tf.GradientTape() as tape:
             patches, decoder_patches, mask_indices = self(data)
