@@ -13,6 +13,8 @@ from tqdm import tqdm
 from layers.vision_transformer import Patches, PatchEncoder, DecoderBlock, PatchDecoder, MLP
 from layers.mae import MAE
 
+from utils import preprocess_data, add_noise
+
 
 class DiTBlock(Layer):
     def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., out_dim=None, activation='gelu',
@@ -267,26 +269,6 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
 
     assert log_probs.shape == x.shape
     return log_probs
-
-
-def preprocess_data(sinogram, gt):
-    # some rescaling
-    sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
-    sinogram = tf.image.resize(sinogram, (1024, 512), method="bilinear")
-
-    gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
-    gt = tf.image.resize(gt, (512, 512))
-
-    return sinogram, gt
-
-
-def add_noise(img, dose=4096):
-    img = dose * tf.math.exp(img)
-
-    img = img + tf.random.normal(shape=tf.shape(img), mean=0.0, stddev=dose ** 0.5, dtype=tf.float32)
-    img = tf.clip_by_value(img / dose, 0.1 / dose, tf.float32.max)
-    img = -tf.math.log(img)
-    return img
 
 
 class DiffusionModel(Model):

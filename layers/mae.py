@@ -8,6 +8,8 @@ from keras.models import *
 
 from layers.vision_transformer import Patches, positional_encoding, EncoderBlock, PatchDecoder, PatchEncoder
 
+from utils import add_noise
+
 
 class MAEPatchEncoder(Layer):
     def __init__(self, num_patches, projection_dim, embedding_type='sin_cos', mask_proportion=0.75, name=None,
@@ -113,8 +115,11 @@ class MAE(Model):
     def __init__(self, input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
                  enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
                  dec_mlp_units=512, dropout=0., activation='gelu', mask_ratio=0.75,
-                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae'):
+                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae', radon=False, radon_transform=None):
         super(MAE, self).__init__(name=name)
+
+        self.radon = radon
+        self.radon_transform = radon_transform
 
         self.inp_shape = input_shape
         self.sinogram_height = sinogram_height
@@ -174,7 +179,7 @@ class MAE(Model):
             unmask_indices,
         ) = self.patch_encoder(patches)
 
-        # Pass the unmaksed patche to the encoder.
+        # Pass the unmasked patches to the encoder.
         encoder_outputs = unmasked_embeddings
 
         for enc_block in self.enc_blocks:
@@ -200,6 +205,18 @@ class MAE(Model):
         return patches, decoder_patches, mask_indices
 
     def train_step(self, data):
+        if self.radon:
+            img, _, _ = data
+            sinogram = self.radon_transform(img, training=False)
+            sinogram = add_noise(sinogram, dose=4096)
+            sinogram = tf.clip_by_value(sinogram, 0, 10)
+            sinogram = sinogram[:, ::-1, ::-1, 0] * 0.46451485
+
+            sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+            sinogram = tf.image.resize(sinogram, (1024, 513))
+
+            data = (sinogram, data[1], data[2])
+
         with tf.GradientTape() as tape:
             patches, decoder_patches, mask_indices = self(data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
