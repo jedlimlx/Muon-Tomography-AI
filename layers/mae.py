@@ -115,9 +115,11 @@ class MAE(Model):
     def __init__(self, input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
                  enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
                  dec_mlp_units=512, dropout=0., activation='gelu', mask_ratio=0.75,
-                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae', radon=False, radon_transform=None):
+                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
+                 radon=False, radon_transform=None, dose=4096):
         super(MAE, self).__init__(name=name)
 
+        self.dose = dose
         self.radon = radon
         self.radon_transform = radon_transform
 
@@ -167,8 +169,13 @@ class MAE(Model):
         self.depatchify = PatchDecoder(sinogram_width, sinogram_height, int(input_shape[1] / sinogram_width),
                                        int(input_shape[0] / sinogram_height), name=f'{name}_depatchify')
 
-    def call(self, inputs, training=None, mask=None):
+    def call(self, inputs, denoised_inputs=None, training=None, mask=None):
         patches = self.patches(inputs)
+
+        if denoised_inputs is None:
+            denoised_patches = self.patches(inputs)
+        else:
+            denoised_patches = self.patches(denoised_inputs)
 
         # Encode the patches.
         (
@@ -202,22 +209,30 @@ class MAE(Model):
 
         decoder_patches = self.depatchify(decoder_outputs)
 
-        return patches, decoder_patches, mask_indices
+        return denoised_patches, decoder_patches, mask_indices
 
     def train_step(self, data):
-        if self.radon:
-            sinogram = self.radon_transform(data, training=False)
-            sinogram = add_noise(sinogram, dose=4096)
+        def process_sinogram(sinogram):
             sinogram = tf.clip_by_value(sinogram, 0, 10)
             sinogram = sinogram[:, ::-1, ::-1, 0] * 0.46451485
 
             sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
             sinogram = tf.image.resize(sinogram, (1024, 513))
+            return sinogram
+
+        if self.radon:
+            sinogram = self.radon_transform(data, training=False)
+            noised_sinogram = add_noise(sinogram, dose=self.dose)
+
+            sinogram = process_sinogram(sinogram)
+            noised_sinogram = process_sinogram(noised_sinogram)
 
             data = sinogram
+            noised_data = noised_sinogram
+        else: noised_data = data
 
         with tf.GradientTape() as tape:
-            patches, decoder_patches, mask_indices = self(data)
+            patches, decoder_patches, mask_indices = self(noised_data, denoised_inputs=data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
             loss_output = tf.gather(decoder_patches, mask_indices, axis=1, batch_dims=1)
             total_loss = self.compiled_loss(loss_patch, loss_output)
