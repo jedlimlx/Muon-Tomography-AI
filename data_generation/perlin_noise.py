@@ -100,9 +100,9 @@ def generate_perlin_noise_3d(shape, res):
 
 
 @tf.function
-def generate_fractal_noise_2d(batch_size, shape, res, octaves=1, persistence=0.5):
+def generate_fractal_noise_2d(batch_size, shape, res, init_frequency=1, octaves=1, persistence=0.5):
     noise = tf.zeros(shape=shape)
-    frequency = 1
+    frequency = init_frequency
     amplitude = 1.0
     scaling = 0
     for _ in range(octaves):

@@ -639,11 +639,14 @@ class DiffusionModel(Model):
 
         # adding noise to the gt
         noise = tf.random.normal((tf.shape(y)[0], 512, 512, 1))
-        inputt = self.q_sample(y, t, noise)
 
         # additional noise added to simulate error in predictions
-        inputt = tf.random.normal((tf.shape(y)[0],), minval=-self.gamma, maxval=self.gamma) * \
-                 tf.random.normal((tf.shape(y)[0], 512, 512, 1)) + inputt
+        y_noised = tf.multiply(
+            tf.random.normal((tf.shape(y)[0], 512, 512, 1)),
+            tf.random.normal((tf.shape(y)[0], 1, 1, 1), mean=0, stddev=self.gamma)
+        ) + y
+
+        inputt = self.q_sample(y_noised, t, noise)
 
         with tf.GradientTape() as tape:
             y_pred = self.model((*x, inputt, t / self.num_timesteps), training=True)  # Forward pass
