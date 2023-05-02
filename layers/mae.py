@@ -116,12 +116,14 @@ class MAE(Model):
                  enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
                  dec_mlp_units=512, dropout=0., activation='gelu', mask_ratio=0.75,
                  norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
-                 radon=False, radon_transform=None, dose=4096):
+                 radon=False, radon_transform=None, dose=4096, denoise=False):
         super(MAE, self).__init__(name=name)
 
-        self.dose = dose
         self.radon = radon
         self.radon_transform = radon_transform
+
+        self.dose = dose
+        self.denoise = denoise
 
         self.inp_shape = input_shape
         self.sinogram_height = sinogram_height
@@ -229,6 +231,8 @@ class MAE(Model):
 
             data = sinogram
             noised_data = noised_sinogram
+
+            if self.denoise: data = noised_sinogram
         else: noised_data = data
 
         with tf.GradientTape() as tape:
