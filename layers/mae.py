@@ -116,7 +116,7 @@ class MAE(Model):
                  enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
                  dec_mlp_units=512, dropout=0., activation='gelu', mask_ratio=0.75,
                  norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
-                 radon=False, radon_transform=None, dose=4096, denoise=False):
+                 radon=False, radon_transform=None, dose=4096, denoise=False, apply_noise=False):
         super(MAE, self).__init__(name=name)
 
         self.radon = radon
@@ -124,6 +124,7 @@ class MAE(Model):
 
         self.dose = dose
         self.denoise = denoise
+        self.apply_noise = apply_noise
 
         self.inp_shape = input_shape
         self.sinogram_height = sinogram_height
@@ -224,7 +225,9 @@ class MAE(Model):
 
         if self.radon:
             sinogram = self.radon_transform(data, training=False)
-            noised_sinogram = add_noise(sinogram, dose=self.dose)
+
+            if self.apply_noise: noised_sinogram = add_noise(sinogram, dose=self.dose)
+            else: noised_sinogram = sinogram
 
             sinogram = process_sinogram(sinogram)
             noised_sinogram = process_sinogram(noised_sinogram)
