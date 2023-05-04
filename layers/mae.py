@@ -211,17 +211,17 @@ class MAE(Model):
 
         decoder_outputs = self.output_projection(decoder_outputs)
 
-        decoder_outputs = tf.transpose(decoder_outputs, (1, 2, 0))
+        """
         decoder_outputs = tf.scatter_nd(
             indices=tf.expand_dims(unmask_indices, axis=-1),
-            updates=decoder_outputs,
-            shape=(self.num_patches, tf.shape(decoder_outputs)[2], tf.shape(decoder_outputs)[0])
+            updates=tf.reshape(decoder_outputs, (-1, tf.shape(decoder_outputs)[2])),
+            shape=(tf.shape(decoder_outputs)[0], self.num_patches, tf.shape(decoder_outputs)[2])
         ) + tf.scatter_nd(
             indices=tf.expand_dims(mask_indices, axis=-1),
-            updates=decoder_outputs,
-            shape=(self.num_patches, tf.shape(decoder_outputs)[2], tf.shape(decoder_outputs)[0])
+            updates=tf.reshape(decoder_outputs, (-1, tf.shape(decoder_outputs)[2])),
+            shape=(tf.shape(decoder_outputs)[0], self.num_patches, tf.shape(decoder_outputs)[2])
         )
-        decoder_outputs = tf.transpose(decoder_outputs, (2, 0, 1))
+        """
 
         decoder_patches = self.depatchify(decoder_outputs)
 
