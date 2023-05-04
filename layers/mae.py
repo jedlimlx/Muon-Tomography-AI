@@ -242,7 +242,7 @@ class MAE(Model):
         with tf.GradientTape() as tape:
             patches, decoder_patches, mask_indices = self(noised_data, denoised_inputs=data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-            loss_output = decoder_patches[self.num_patches//4:]
+            loss_output = decoder_patches[:, self.num_patches//4:]
             total_loss = self.compiled_loss(loss_patch, loss_output)
 
         gradients = tape.gradient(total_loss, self.trainable_variables)
