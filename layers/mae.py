@@ -245,10 +245,6 @@ class MAE(Model):
             loss_output = decoder_patches[:, int(self.num_patches*(1-self.mask_ratio)):]
             total_loss = self.compiled_loss(loss_patch, loss_output)
 
-            loss_patch = tf.gather(patches, unmasked_indices, axis=1, batch_dims=1)
-            loss_output = decoder_patches[:, :int(self.num_patches*(1-self.mask_ratio))]
-            total_loss = total_loss + self.compiled_loss(loss_patch, loss_output)
-
         gradients = tape.gradient(total_loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
@@ -259,7 +255,7 @@ class MAE(Model):
     def test_step(self, data):
         patches, decoder_patches, mask_indices, unmasked_indices = self(data)
         loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-        loss_output = decoder_patches[:, self.num_patches//4:]
+        loss_output = decoder_patches[:, int(self.num_patches*(1-self.mask_ratio)):]
 
         self.compiled_loss(loss_patch, loss_output)
 
