@@ -213,7 +213,7 @@ class MAE(Model):
 
         decoder_patches = self.depatchify(decoder_outputs)
 
-        return denoised_patches, decoder_patches, mask_indices
+        return denoised_patches, decoder_patches, mask_indices, unmask_indices
 
     def train_step(self, data):
         def process_sinogram(sinogram):
@@ -240,10 +240,14 @@ class MAE(Model):
         else: noised_data = data
 
         with tf.GradientTape() as tape:
-            patches, decoder_patches, mask_indices = self(noised_data, denoised_inputs=data)
+            patches, decoder_patches, mask_indices, unmasked_indices = self(noised_data, denoised_inputs=data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-            loss_output = decoder_patches[:, self.num_patches//4:]
+            loss_output = decoder_patches[:, int(self.num_patches*(1-self.mask_ratio)):]
             total_loss = self.compiled_loss(loss_patch, loss_output)
+
+            loss_patch = tf.gather(patches, unmasked_indices, axis=1, batch_dims=1)
+            loss_output = decoder_patches[:, :int(self.num_patches*(1-self.mask_ratio))]
+            total_loss = total_loss + self.compiled_loss(loss_patch, loss_output)
 
         gradients = tape.gradient(total_loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -253,9 +257,9 @@ class MAE(Model):
         return {m.name: m.result() for m in self.metrics}
 
     def test_step(self, data):
-        patches, decoder_patches, mask_indices = self(data)
+        patches, decoder_patches, mask_indices, unmasked_indices = self(data)
         loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-        loss_output = tf.gather(decoder_patches, mask_indices, axis=1, batch_dims=1)
+        loss_output = decoder_patches[:, self.num_patches//4:]
 
         self.compiled_loss(loss_patch, loss_output)
 
