@@ -57,6 +57,7 @@ class MAEPatchEncoder(Layer):
 
         if mask_indices is None or unmask_indices is None:
             mask_indices, unmask_indices = self.get_random_indices(batch_size)
+
         # The encoder input is the unmasked patch embeddings. Here we gather
         # all the patches that should be unmasked.
         unmasked_embeddings = tf.gather(
@@ -86,7 +87,7 @@ class MAEPatchEncoder(Layer):
             masked_embeddings,  # First part of input to the decoder.
             unmasked_positions,  # Added to the encoder outputs.
             mask_indices,  # The indices that were masked.
-            unmask_indices,  # The indices that were unmaksed.
+            unmask_indices,  # The indices that were unmasked.
         )
 
     def get_random_indices(self, batch_size):
@@ -241,7 +242,7 @@ class MAE(Model):
         with tf.GradientTape() as tape:
             patches, decoder_patches, mask_indices = self(noised_data, denoised_inputs=data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-            loss_output = tf.gather(decoder_patches, mask_indices, axis=1, batch_dims=1)
+            loss_output = decoder_patches[self.num_patches//4:]
             total_loss = self.compiled_loss(loss_patch, loss_output)
 
         gradients = tape.gradient(total_loss, self.trainable_variables)
