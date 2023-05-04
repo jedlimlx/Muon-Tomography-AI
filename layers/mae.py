@@ -148,7 +148,7 @@ class MAE(Model):
         self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
 
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
-        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, name=f'{name}_enc_projection')
+        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_ratio=mask_ratio, name=f'{name}_enc_projection')
 
         self.enc_blocks = [
             EncoderBlock(enc_heads, enc_dim, enc_mlp_units, dropout, activation=activation,
