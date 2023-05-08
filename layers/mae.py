@@ -312,7 +312,7 @@ class MaskedCTransformer(Model):
                  output_x_patches=16, output_y_patches=16, dropout=0., activation='gelu', mask_ratio=0.75,
                  norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
                  radon=False, radon_transform=None, dose=4096):
-        super(MAE, self).__init__(name=name)
+        super(MaskedCTransformer, self).__init__(name=name)
 
         self.radon = radon
         self.radon_transform = radon_transform
