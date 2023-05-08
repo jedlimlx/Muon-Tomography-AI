@@ -425,7 +425,7 @@ class MaskedCTransformer(Model):
             x = (sinogram, x[1], x[2])
 
         with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)
+            y_pred = self(x[0], training=True)
             loss = self.compiled_loss(y_pred, y)
 
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -442,7 +442,7 @@ class MaskedCTransformer(Model):
         sinogram, y = preprocess_data(x[0], y)
         x = (sinogram, x[1], x[2])
 
-        y_pred = self(x, training=False)
+        y_pred = self(x[0], training=False)
 
         self.compiled_loss(y_pred, y)
 

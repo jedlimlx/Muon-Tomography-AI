@@ -555,8 +555,8 @@ class DiffusionModel(Model):
             + tf.math.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
         )
 
-        nonzero_mask = (
-            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        nonzero_mask = tf.reshape(
+            1 - tf.cast(tf.equal(t, 0), tf.float32), [tf.shape(x)[0], 1, 1, 1]
         )  # no noise when t == 0
 
         return mean_pred + nonzero_mask * sigma * noise
