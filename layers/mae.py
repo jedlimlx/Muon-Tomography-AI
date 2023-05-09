@@ -8,7 +8,7 @@ from keras.models import *
 
 from layers.vision_transformer import Patches, positional_encoding, EncoderBlock, PatchDecoder, PatchEncoder
 
-from utils import add_noise
+from utils import add_noise, preprocess_data
 
 
 class MAEPatchEncoder(Layer):
@@ -305,6 +305,200 @@ class MAE(Model):
         return cfg
 
 
+class MaskedCTransformer(Model):
+    def __init__(self, input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
+                 enc_mlp_units=512, enc_heads=16, dec_dim=256, dec_layers=8, dec_heads=16,
+                 dec_mlp_units=512, output_patch_height=16, output_patch_width=16,
+                 output_x_patches=16, output_y_patches=16, dropout=0., activation='gelu', mask_ratio=0.75,
+                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
+                 radon=False, radon_transform=None, dose=4096):
+        super(MaskedCTransformer, self).__init__(name=name)
+
+        self.radon = radon
+        self.radon_transform = radon_transform
+
+        self.dose = dose
+
+        self.inp_shape = input_shape
+        self.sinogram_height = sinogram_height
+        self.sinogram_width = sinogram_width
+        self.enc_dim = enc_dim
+        self.enc_layers = enc_layers
+        self.enc_mlp_units = enc_mlp_units
+        self.enc_heads = enc_heads
+        self.dec_dim = dec_dim
+        self.dec_layers = dec_layers
+        self.dec_heads = dec_heads
+        self.dec_mlp_units = dec_mlp_units
+        self.dropout = dropout
+        self.activation = activation
+        self.mask_ratio = mask_ratio
+
+        self.output_patch_height = output_patch_height
+        self.output_patch_width = output_patch_width
+        self.output_x_patches = output_x_patches
+        self.output_y_patches = output_y_patches
+
+        if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
+            raise ValueError("Cannot divide image into even patches")
+
+        self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
+
+        self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
+        self.patches_2 = Patches(output_patch_width, output_patch_height, name=f'{name}_patches_2')
+        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio, name=f'{name}_enc_projection')
+
+        self.enc_blocks = [
+            EncoderBlock(enc_heads, enc_dim, enc_mlp_units, dropout, activation=activation,
+                         norm=norm, name=f'{name}_enc_block_{i}')
+            for i in range(enc_layers)
+        ]
+
+        self.enc_norm = norm(name=f'{name}_enc_norm')
+
+        self.dec_projection = Dense(dec_dim, name=f'{name}_dec_projection')
+
+        self.dec_blocks = [
+            EncoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"{name}_dec_block_{i}")
+            for i in range(dec_layers)
+        ]
+
+        self.dec_norm = norm(name=f'{name}_dec_norm')
+
+        self.output_projection = Dense(output_patch_height * output_patch_width, name=f'{name}_output_projection')
+
+        self.depatchify = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
+                                       name=f"{name}_depatchify")
+
+    def call(self, inputs, training=None, mask=None):
+        patches = self.patches(inputs)
+
+        # Encode the patches.
+        (
+            unmasked_embeddings,
+            masked_embeddings,
+            unmasked_positions,
+            mask_indices,
+            unmask_indices,
+        ) = self.patch_encoder(patches)
+
+        # Pass the unmasked patches to the encoder.
+        encoder_outputs = unmasked_embeddings
+
+        for enc_block in self.enc_blocks:
+            encoder_outputs = enc_block(encoder_outputs)
+
+        encoder_outputs = self.enc_norm(encoder_outputs)
+
+        # Create the decoder inputs.
+        encoder_outputs = encoder_outputs + unmasked_positions
+        decoder_inputs = tf.concat([encoder_outputs, masked_embeddings], axis=1)
+
+        # decoder projection
+        decoder_outputs = self.dec_projection(decoder_inputs)
+        for dec_block in self.dec_blocks:
+            decoder_outputs = dec_block(decoder_outputs)
+
+        # output projection
+        decoder_outputs = self.output_projection(decoder_outputs)
+
+        # reshape
+        decoder_outputs = self.depatchify(decoder_outputs)
+
+        return decoder_outputs, tf.concat([unmask_indices, mask_indices], axis=-1)
+
+    def train_step(self, data):
+        x, y = data
+
+        if self.radon:
+            # apply radon transform
+            sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
+            sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
+
+            # preprocess data
+            sinogram = add_noise(sinogram, dose=self.dose)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
+        else:
+            # preprocess data
+            sinogram, y = preprocess_data(x, y)
+
+        with tf.GradientTape() as tape:
+            y_patches = self.patches_2(y)
+            y_pred, indices = self(sinogram, training=True)
+
+            y_patches = tf.gather(y_patches, indices, axis=1, batch_dims=1)
+            y_patches = self.depatchify(y_patches)
+
+            loss = self.compiled_loss(y_pred, y_patches)
+
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        self.compiled_metrics.update_state(y_pred, y)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        x, y = data
+
+        # preprocess data
+        sinogram, y = preprocess_data(x, y)
+
+        # call model
+        y_patches = self.patches_2(y)
+        y_pred, indices = self(sinogram, training=False)
+
+        y_patches = tf.gather(y_patches, indices, axis=1, batch_dims=1)
+        y_patches = self.depatchify(y_patches)
+
+        # evaluate loss
+        loss = self.compiled_loss(y_pred, y_patches)
+
+        self.compiled_loss(y_pred, y)
+
+        self.compiled_metrics.update_state(y_pred, y)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(MaskedCTransformer, self).get_config()
+        cfg.update({
+            'input_shape': self.inp_shape,
+            'sinogram_height': self.sinogram_height,
+            'sinogram_width': self.sinogram_width,
+            'enc_dim': self.enc_dim,
+            'enc_layers': self.enc_layers,
+            'enc_mlp_units': self.enc_mlp_units,
+            'enc_heads': self.enc_heads,
+            'dec_layers': self.dec_layers,
+            'dec_heads': self.dec_heads,
+            'dec_mlp_units': self.dec_mlp_units,
+            'dropout': self.dropout,
+            'activation': self.activation,
+            'mask_ratio': self.mask_ratio,
+            'norm': serialize(self.enc_blocks[0].norm1),
+            'output_patch_height': 16,
+            'output_patch_width': 16,
+            'output_x_patches': 16,
+            'output_y_patches': 16,
+            'radon': self.radon,
+            'radon_transform': self.radon_transform,
+            'dose': self.dose
+        })
+        return cfg
+
+
+
 def downstream(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_projection=False,
                output_patch_height=16, output_patch_width=16, output_x_patches=16, output_y_patches=16,
                norm=partial(LayerNormalization, epsilon=1e-5)):
@@ -402,4 +596,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    ct_transformer = MaskedCTransformer()

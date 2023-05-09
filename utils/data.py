@@ -4,7 +4,7 @@ import tensorflow as tf
 def preprocess_data(sinogram, gt):
     # some rescaling
     sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
-    sinogram = tf.image.resize(sinogram, (1024, 512), method="bilinear")
+    sinogram = tf.image.resize(sinogram, (1024, 513), method="bilinear")
 
     gt = tf.expand_dims(gt - 0.16737686, -1) / 0.11505456
     gt = tf.image.resize(gt, (512, 512))
