@@ -345,6 +345,7 @@ class MaskedCTransformer(Model):
         self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
 
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
+        self.patches_2 = Patches(sinogram_width, sinogram_height, f'{name}_patches')
         self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio, name=f'{name}_enc_projection')
 
         self.enc_blocks = [
@@ -405,7 +406,7 @@ class MaskedCTransformer(Model):
         # reshape
         decoder_outputs = self.depatchify(decoder_outputs)
 
-        return decoder_outputs
+        return decoder_outputs, tf.concat([mask_indices, unmask_indices], axis=-1)
 
     def train_step(self, data):
         x, y = data
@@ -418,15 +419,18 @@ class MaskedCTransformer(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
-            x = (sinogram, x[1], x[2])
         else:
             # preprocess data
-            sinogram, y = preprocess_data(x[0], y)
-            x = (sinogram, x[1], x[2])
+            sinogram, y = preprocess_data(x, y)
 
         with tf.GradientTape() as tape:
-            y_pred = self(x[0], training=True)
-            loss = self.compiled_loss(y_pred, y)
+            y_patches = self.patches_2(y)
+            y_pred, indices = self(sinogram, training=True)
+
+            y_patches = tf.gather(y_patches, indices, axis=1, batch_dims=1)
+            y_patches = self.depatchify(y_patches)
+
+            loss = self.compiled_loss(y_pred, y_patches)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -439,10 +443,17 @@ class MaskedCTransformer(Model):
         x, y = data
 
         # preprocess data
-        sinogram, y = preprocess_data(x[0], y)
-        x = (sinogram, x[1], x[2])
+        sinogram, y = preprocess_data(x, y)
 
-        y_pred = self(x[0], training=False)
+        # call model
+        y_patches = self.patches_2(y)
+        y_pred, indices = self(sinogram, training=False)
+
+        y_patches = tf.gather(y_patches, indices, axis=1, batch_dims=1)
+        y_patches = self.depatchify(y_patches)
+
+        # evaluate loss
+        loss = self.compiled_loss(y_pred, y_patches)
 
         self.compiled_loss(y_pred, y)
 
