@@ -406,7 +406,7 @@ class MaskedCTransformer(Model):
         # reshape
         decoder_outputs = self.depatchify(decoder_outputs)
 
-        return decoder_outputs, tf.concat([mask_indices, unmask_indices], axis=-1)
+        return decoder_outputs, tf.concat([unmask_indices, mask_indices], axis=-1)
 
     def train_step(self, data):
         x, y = data
