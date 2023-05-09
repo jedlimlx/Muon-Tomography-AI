@@ -345,7 +345,7 @@ class MaskedCTransformer(Model):
         self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
 
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
-        self.patches_2 = Patches(sinogram_width, sinogram_height, f'{name}_patches')
+        self.patches_2 = Patches(output_patch_width, output_patch_height, name=f'{name}_patches_2')
         self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio, name=f'{name}_enc_projection')
 
         self.enc_blocks = [
