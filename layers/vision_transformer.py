@@ -598,6 +598,7 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
+        y = tf.image.resize(y, self.final_shape[:-1])
 
         # call model
         y_pred = self(sinogram, training=False)
@@ -619,7 +620,7 @@ class CTransformerModel(Model):
         return cls(**config, norm=norm)
 
     def get_config(self):
-        cfg = super(CTransformer, self).get_config()
+        cfg = super(CTransformerModel, self).get_config()
         cfg.update({
             'input_shape': self.inp_shape,
             'sinogram_height': self.sinogram_height,
