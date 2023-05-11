@@ -471,7 +471,7 @@ class CTransformerModel(Model):
                  dec_mlp_units=512, output_projection=True, output_patch_height=16, output_patch_width=16,
                  output_x_patches=16, output_y_patches=16, dropout=0., activation='gelu',
                  norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
-                 radon=False, radon_transform=None, dose=4096, final_size=(362, 362)):
+                 radon=False, radon_transform=None, dose=4096, final_shape=(362, 362, 1)):
         super(CTransformerModel, self).__init__(name=name)
 
         self.radon = radon
@@ -499,6 +499,8 @@ class CTransformerModel(Model):
         self.output_patch_width = output_patch_width
         self.output_x_patches = output_x_patches
         self.output_y_patches = output_y_patches
+
+        self.final_shape = final_shape
 
         if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
             raise ValueError("Cannot divide image into even patches")
@@ -564,6 +566,8 @@ class CTransformerModel(Model):
         x, y = data
 
         if self.radon:
+            y_old = y
+
             # apply radon transform
             sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
             sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
@@ -573,12 +577,16 @@ class CTransformerModel(Model):
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
         else:
             # preprocess data
+            y_old, y = y, tf.image.resize(y, self.input_shape[:-1])
             sinogram, y = preprocess_data(x, y)
 
         with tf.GradientTape() as tape:
             y_pred = self(sinogram, training=True)
 
             loss = self.compiled_loss(y_pred, y)
+
+        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+        y = tf.image.resize(y_old, self.final_shape[:-1])
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -594,7 +602,8 @@ class CTransformerModel(Model):
         sinogram, y = preprocess_data(x, y)
 
         # call model
-        y_pred, indices = self(sinogram, training=False)
+        y_pred = self(sinogram, training=False)
+        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
         # evaluate loss
         self.compiled_loss(y_pred, y)
