@@ -510,7 +510,7 @@ class CTransformerModel(Model):
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
         self.patches_2 = Patches(output_patch_width, output_patch_height, name=f'{name}_patches_2')
 
-        self.patch_encoder = PatchEncoder(num_patches=output_x_patches*output_y_patches,
+        self.patch_encoder = PatchEncoder(num_patches=self.num_patches,
                                           projection_dim=enc_dim, name="enc_projection")
 
         self.enc_blocks = [
@@ -521,7 +521,8 @@ class CTransformerModel(Model):
 
         self.enc_norm = norm(name=f'{name}_enc_norm')
 
-        self.dec_projection_layer = PatchEncoder(num_patches=self.num_patches, projection_dim=self.dec_dim, name="dec_projection")
+        self.dec_projection_layer = PatchEncoder(num_patches=self.num_patches,
+                                                 projection_dim=self.dec_dim, name="dec_projection")
         # Dense(dec_dim, name=f'{name}_dec_projection')
 
         self.dec_blocks = [
