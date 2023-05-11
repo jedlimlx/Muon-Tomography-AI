@@ -573,20 +573,17 @@ class CTransformerModel(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
-
-            y_old = y
         else:
             # preprocess data
-            y_old, y = y, tf.image.resize(y, self.input_shape[:-1])
             sinogram, y = preprocess_data(x, y, resize_img=False)
 
         with tf.GradientTape() as tape:
             y_pred = self(sinogram, training=True)
+            y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+
+            y = tf.image.resize(y, self.final_shape[:-1])
 
             loss = self.compiled_loss(y_pred, y)
-
-        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
-        y = tf.image.resize(y_old, self.final_shape[:-1])
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
