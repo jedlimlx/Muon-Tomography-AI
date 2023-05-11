@@ -584,12 +584,12 @@ class CTransformerModel(Model):
 
             y = tf.image.resize(y, self.final_shape[:-1])
 
-            loss = self.compiled_loss(y_pred, y)
+            loss = self.compiled_loss(y, y_pred)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
-        self.compiled_metrics.update_state(y_pred, y)
+        self.compiled_metrics.update_state(y, y_pred)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -605,8 +605,8 @@ class CTransformerModel(Model):
         y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
         # evaluate loss
-        self.compiled_loss(y_pred, y)
-        self.compiled_metrics.update_state(y_pred, y)
+        self.compiled_loss(y, y_pred)
+        self.compiled_metrics.update_state(y, y_pred)
 
         return {m.name: m.result() for m in self.metrics}
 
