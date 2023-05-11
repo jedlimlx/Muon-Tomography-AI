@@ -566,8 +566,6 @@ class CTransformerModel(Model):
         x, y = data
 
         if self.radon:
-            y_old = y
-
             # apply radon transform
             sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
             sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
@@ -575,6 +573,8 @@ class CTransformerModel(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
+
+            y_old = y
         else:
             # preprocess data
             y_old, y = y, tf.image.resize(y, self.input_shape[:-1])
