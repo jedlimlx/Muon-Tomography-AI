@@ -453,11 +453,8 @@ class MaskedCTransformer(Model):
         y_patches = self.depatchify(y_patches)
 
         # evaluate loss
-        loss = self.compiled_loss(y_pred, y_patches)
-
-        self.compiled_loss(y_pred, y)
-
-        self.compiled_metrics.update_state(y_pred, y)
+        self.compiled_loss(y_pred, y_patches)
+        self.compiled_metrics.update_state(y_pred, y_patches)
 
         return {m.name: m.result() for m in self.metrics}
 

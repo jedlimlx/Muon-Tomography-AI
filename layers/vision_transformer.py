@@ -9,6 +9,8 @@ from keras.models import *
 
 from functools import partial
 
+from utils import add_noise, preprocess_data
+
 
 def get_angles(pos, i, d_model):
     angle_rates = 1 / np.power(10000, (2 * (i // 2)) / np.float32(d_model))
@@ -461,3 +463,187 @@ def CTranslator(input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches, name="depatchify")(y)
 
     return Model(inputs=[inputs, targets], outputs=y)
+
+
+class CTransformerModel(Model):
+    def __init__(self, input_shape=(256, 256, 1), sinogram_height=1, sinogram_width=256, enc_dim=256, enc_layers=8,
+                 enc_mlp_units=512, enc_heads=16, dec_projection=True, dec_dim=256, dec_layers=8, dec_heads=16,
+                 dec_mlp_units=512, output_projection=True, output_patch_height=16, output_patch_width=16,
+                 output_x_patches=16, output_y_patches=16, dropout=0., activation='gelu',
+                 norm=partial(LayerNormalization, epsilon=1e-5), name='mae',
+                 radon=False, radon_transform=None, dose=4096, final_shape=(362, 362, 1)):
+        super(CTransformerModel, self).__init__(name=name)
+
+        self.radon = radon
+        self.radon_transform = radon_transform
+
+        self.dose = dose
+
+        self.inp_shape = input_shape
+        self.sinogram_height = sinogram_height
+        self.sinogram_width = sinogram_width
+        self.enc_dim = enc_dim
+        self.enc_layers = enc_layers
+        self.enc_mlp_units = enc_mlp_units
+        self.enc_heads = enc_heads
+        self.dec_projection = dec_projection
+        self.dec_dim = dec_dim
+        self.dec_layers = dec_layers
+        self.dec_heads = dec_heads
+        self.dec_mlp_units = dec_mlp_units
+        self.output_projection = output_projection
+        self.dropout = dropout
+        self.activation = activation
+
+        self.output_patch_height = output_patch_height
+        self.output_patch_width = output_patch_width
+        self.output_x_patches = output_x_patches
+        self.output_y_patches = output_y_patches
+
+        self.final_shape = final_shape
+
+        if input_shape[0] % sinogram_height != 0 or input_shape[1] % sinogram_width != 0:
+            raise ValueError("Cannot divide image into even patches")
+
+        self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
+
+        self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
+        self.patches_2 = Patches(output_patch_width, output_patch_height, name=f'{name}_patches_2')
+
+        self.patch_encoder = PatchEncoder(num_patches=self.num_patches,
+                                          projection_dim=enc_dim, name="enc_projection")
+
+        self.enc_blocks = [
+            EncoderBlock(enc_heads, enc_dim, enc_mlp_units, dropout, activation=activation,
+                         norm=norm, name=f'{name}_enc_block_{i}')
+            for i in range(enc_layers)
+        ]
+
+        self.enc_norm = norm(name=f'{name}_enc_norm')
+
+        self.dec_projection_layer = PatchEncoder(num_patches=self.num_patches,
+                                                 projection_dim=self.dec_dim, name="dec_projection")
+        # Dense(dec_dim, name=f'{name}_dec_projection')
+
+        self.dec_blocks = [
+            EncoderBlock(num_heads=dec_heads, mlp_units=dec_mlp_units, dim=dec_dim, dropout=dropout,
+                         activation=activation, norm=norm, name=f"{name}_dec_block_{i}")
+            for i in range(dec_layers)
+        ]
+
+        self.dec_norm = norm(name=f'{name}_dec_norm')
+
+        self.output_projection_layer = Dense(output_patch_height * output_patch_width, name=f'{name}_output_projection')
+
+        self.depatchify = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
+                                       name=f"{name}_depatchify")
+
+        self.resize = Resizing(
+            final_shape[0], final_shape[1]
+        )
+
+    def call(self, inputs, training=None, mask=None):
+        # patch
+        x = self.patches(inputs)
+        x = self.patch_encoder(x)
+
+        # encoder
+        for enc_layer in self.enc_blocks:
+            x = enc_layer(x)
+
+        # decoder projection
+        if self.dec_projection:
+            x = self.dec_projection_layer(x)
+
+        # decoder
+        for dec_layer in self.dec_blocks:
+            x = dec_layer(x)
+
+        # output projection
+        if self.output_projection:
+            x = self.output_projection_layer(x)
+
+        # reshape
+        x = self.depatchify(x)
+        return self.resize(x)
+
+    def train_step(self, data):
+        x, y = data
+
+        if self.radon:
+            # apply radon transform
+            sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
+            sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
+
+            # preprocess data
+            sinogram = add_noise(sinogram, dose=self.dose)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
+
+            y = self.resize(y)
+        else:
+            # preprocess data
+            sinogram, y = preprocess_data(x, y, resize_img=False)
+
+        with tf.GradientTape() as tape:
+            y_pred = self(sinogram, training=True)
+            y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+
+            loss = self.compiled_loss(y, y_pred)
+
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        self.compiled_metrics.update_state(y, y_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        x, y = data
+
+        # preprocess data
+        sinogram, y = preprocess_data(x, y, resize_img=False)
+
+        # call model
+        y_pred = self(sinogram, training=False)
+
+        # evaluate loss
+        self.compiled_loss(y, y_pred)
+        self.compiled_metrics.update_state(y, y_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(CTransformerModel, self).get_config()
+        cfg.update({
+            'input_shape': self.inp_shape,
+            'sinogram_height': self.sinogram_height,
+            'sinogram_width': self.sinogram_width,
+            'enc_dim': self.enc_dim,
+            'enc_layers': self.enc_layers,
+            'enc_mlp_units': self.enc_mlp_units,
+            'enc_heads': self.enc_heads,
+            'dec_layers': self.dec_layers,
+            'dec_heads': self.dec_heads,
+            'dec_mlp_units': self.dec_mlp_units,
+            'dropout': self.dropout,
+            'activation': self.activation,
+            'mask_ratio': self.mask_ratio,
+            'norm': serialize(self.enc_blocks[0].norm1),
+            'output_patch_height': 16,
+            'output_patch_width': 16,
+            'output_x_patches': 16,
+            'output_y_patches': 16,
+            'radon': self.radon,
+            'radon_transform': self.radon_transform,
+            'dose': self.dose
+        })
+        return cfg
