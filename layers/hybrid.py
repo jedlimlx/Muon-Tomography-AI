@@ -172,13 +172,13 @@ class DenoiseCTModel(Model):
             fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
 
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y, resize_img=False)
-            _, fbp = preprocess_data(sinogram, fbp, resize_img=True)
+            _, fbp = preprocess_data(sinogram, fbp, resize_img=True, expand_dims=False)
             y = self.resize(y)
 
             x = (sinogram, x[1], x[2], fbp)
         else:
             # preprocess data
-            sinogram, y = preprocess_data(x[0], y, resize_img=False)
+            sinogram, y = preprocess_data(x[0], y, resize_img=False, expand_dims=False)
             x = (sinogram, x[1], x[2], x[3])
 
         with tf.GradientTape() as tape:
@@ -196,8 +196,8 @@ class DenoiseCTModel(Model):
         x, y = data
 
         # preprocess data
-        sinogram, y = preprocess_data(x[0], y, resize_img=False)
-        _, fbp = preprocess_data(sinogram, x[3], resize_img=True)
+        sinogram, y = preprocess_data(x[0], y, resize_img=False, expand_dims=False)
+        _, fbp = preprocess_data(sinogram, x[3], resize_img=True, expand_dims=False)
         # fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
 
         # call model
