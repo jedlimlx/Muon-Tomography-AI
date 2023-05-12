@@ -1,6 +1,7 @@
 from functools import partial
 
 import tensorflow as tf
+
 keras = tf.keras
 
 from keras.layers import *
@@ -148,7 +149,8 @@ class MAE(Model):
         self.num_patches = int(input_shape[1] / sinogram_width * input_shape[0] / sinogram_height)
 
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
-        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio, name=f'{name}_enc_projection')
+        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio,
+                                             name=f'{name}_enc_projection')
 
         self.enc_blocks = [
             EncoderBlock(enc_heads, enc_dim, enc_mlp_units, dropout, activation=activation,
@@ -230,17 +232,19 @@ class MAE(Model):
     def train_step(self, data):
         def process_sinogram(sinogram):
             sinogram = tf.clip_by_value(sinogram, 0, 10)
-            sinogram = sinogram[:, ::-1, ::-1, 0] * 0.46451485
+            sinogram = sinogram[:, ::-1, ::-1, :] * 0.46451485
 
-            sinogram = tf.expand_dims(sinogram - 0.030857524, -1) / 0.023017514
+            sinogram = (sinogram - 0.030857524) / 0.023017514
             sinogram = tf.image.resize(sinogram, (1024, 513))
             return sinogram
 
         if self.radon:
             sinogram = self.radon_transform(data, training=False)
 
-            if self.apply_noise: noised_sinogram = add_noise(sinogram, dose=self.dose)
-            else: noised_sinogram = sinogram
+            if self.apply_noise:
+                noised_sinogram = add_noise(sinogram, dose=self.dose)
+            else:
+                noised_sinogram = sinogram
 
             sinogram = process_sinogram(sinogram)
             noised_sinogram = process_sinogram(noised_sinogram)
@@ -248,13 +252,15 @@ class MAE(Model):
             data = sinogram
             noised_data = noised_sinogram
 
-            if self.denoise: data = noised_sinogram
-        else: noised_data = data
+            if self.denoise:
+                data = noised_sinogram
+        else:
+            noised_data = data
 
         with tf.GradientTape() as tape:
             patches, decoder_patches, mask_indices, unmasked_indices = self(noised_data, denoised_inputs=data)
             loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-            loss_output = decoder_patches[:, int(self.num_patches*(1-self.mask_ratio)):]
+            loss_output = decoder_patches[:, int(self.num_patches * (1 - self.mask_ratio)):]
             total_loss = self.compiled_loss(loss_patch, loss_output)
 
         gradients = tape.gradient(total_loss, self.trainable_variables)
@@ -267,7 +273,7 @@ class MAE(Model):
     def test_step(self, data):
         patches, decoder_patches, mask_indices, unmasked_indices = self(data)
         loss_patch = tf.gather(patches, mask_indices, axis=1, batch_dims=1)
-        loss_output = decoder_patches[:, int(self.num_patches*(1-self.mask_ratio)):]
+        loss_output = decoder_patches[:, int(self.num_patches * (1 - self.mask_ratio)):]
 
         self.compiled_loss(loss_patch, loss_output)
 
@@ -346,7 +352,8 @@ class MaskedCTransformer(Model):
 
         self.patches = Patches(sinogram_width, sinogram_height, f'{name}_patches')
         self.patches_2 = Patches(output_patch_width, output_patch_height, name=f'{name}_patches_2')
-        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio, name=f'{name}_enc_projection')
+        self.patch_encoder = MAEPatchEncoder(self.num_patches, enc_dim, mask_proportion=mask_ratio,
+                                             name=f'{name}_enc_projection')
 
         self.enc_blocks = [
             EncoderBlock(enc_heads, enc_dim, enc_mlp_units, dropout, activation=activation,
@@ -418,7 +425,7 @@ class MaskedCTransformer(Model):
 
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
-            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y)
         else:
             # preprocess data
             sinogram, y = preprocess_data(x, y)
@@ -493,7 +500,6 @@ class MaskedCTransformer(Model):
             'dose': self.dose
         })
         return cfg
-
 
 
 def downstream(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512, output_projection=False,

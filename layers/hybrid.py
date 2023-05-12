@@ -65,9 +65,10 @@ def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_
 
 class DenoiseCTModel(Model):
     def __init__(self, mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512,
-                 output_patch_height=16, output_patch_width=16, output_x_patches=16, output_y_patches=16,
+                 output_patch_height=16, output_patch_width=16, output_x_patches=32, output_y_patches=32,
                  norm=partial(LayerNormalization, epsilon=1e-5), radon=True,
-                 radon_transform=None, fbp=None, dosage=4096, final_shape=(362, 362, 1)):
+                 radon_transform=None, fbp=None, dosage=4096, final_shape=(362, 362, 1), *args, **kwargs):
+        super(DenoiseCTModel, self).__init__(*args, **kwargs)
         self.num_mask = num_mask
 
         self.dec_dim = dec_dim
@@ -85,11 +86,12 @@ class DenoiseCTModel(Model):
         self.radon = radon
         self.radon_transform = radon_transform
         self.fbp = fbp
-        self.dosage = dosage
+        self.dose = dosage
 
         self.final_shape = final_shape
+        self.inp_shape = mae.inp_shape
+        self.mae = mae
 
-        self.input_shape = mae.inp_shape
         self.num_patches = mae.num_patches
 
         self.patches = Patches(self.output_patch_width, self.output_patch_height, name='dec_patches')
@@ -152,7 +154,7 @@ class DenoiseCTModel(Model):
 
         y = self.norm_layer(y)
         y = self.dense(y)
-        y = self.patch_encoder(y)
+        y = self.patch_decoder(y)
 
         return self.resize(y)
 
@@ -161,16 +163,16 @@ class DenoiseCTModel(Model):
 
         if self.radon:
             # apply radon transform
-            sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
+            sinogram = self.radon_transform(tf.image.resize(y, (362, 362)), training=False)
             sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
 
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             fbp = self.fbp(sinogram, training=False)  # todo may need to do some postprocessing on fbp
-            fbp = tf.image.central_crop(fbp, self.final_shape[0]/self.input_shape[0])
+            fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
 
-            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
-            _, fbp = preprocess_data(sinogram, fbp, resize_img=False)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y, resize_img=False)
+            _, fbp = preprocess_data(sinogram, fbp, resize_img=True)
             y = self.resize(y)
 
             x = (sinogram, x[1], x[2], fbp)
@@ -195,8 +197,8 @@ class DenoiseCTModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x[0], y, resize_img=False)
-        _, fbp = preprocess_data(sinogram, x[3], resize_img=False)
-        fbp = tf.image.central_crop(fbp, self.final_shape[0]/self.input_shape[0])
+        _, fbp = preprocess_data(sinogram, x[3], resize_img=True)
+        # fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
 
         # call model
         y_pred = self((sinogram, x[1], x[2], fbp), training=False)
