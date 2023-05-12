@@ -565,7 +565,7 @@ class CTransformerModel(Model):
 
         # reshape
         x = self.depatchify(x)
-        return x
+        return self.resize(x)
 
     def train_step(self, data):
         x, y = data
@@ -578,6 +578,8 @@ class CTransformerModel(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
+
+            y = self.resize(y)
         else:
             # preprocess data
             sinogram, y = preprocess_data(x, y, resize_img=False)
@@ -585,8 +587,6 @@ class CTransformerModel(Model):
         with tf.GradientTape() as tape:
             y_pred = self(sinogram, training=True)
             y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
-
-            y = self.resize(y)
 
             loss = self.compiled_loss(y, y_pred)
 
@@ -602,11 +602,9 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
-        y = self.resize(y)
 
         # call model
         y_pred = self(sinogram, training=False)
-        y_pred = self.resize(y_pred)
 
         # evaluate loss
         self.compiled_loss(y, y_pred)
