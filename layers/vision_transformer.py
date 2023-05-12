@@ -538,6 +538,10 @@ class CTransformerModel(Model):
         self.depatchify = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                                        name=f"{name}_depatchify")
 
+        self.resize = Resizing(
+            final_shape[0], final_shape[1]
+        )
+
     def call(self, inputs, training=None, mask=None):
         # patch
         x = self.patches(inputs)
@@ -582,7 +586,7 @@ class CTransformerModel(Model):
             y_pred = self(sinogram, training=True)
             y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
-            y = tf.image.resize(y, self.final_shape[:-1])
+            y = self.resize(y)
 
             loss = self.compiled_loss(y, y_pred)
 
@@ -598,11 +602,11 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
-        y = tf.image.resize(y, self.final_shape[:-1])
+        y = self.resize(y)
 
         # call model
         y_pred = self(sinogram, training=False)
-        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+        y_pred = self.resize(y_pred)
 
         # evaluate loss
         self.compiled_loss(y, y_pred)
