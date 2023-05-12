@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from utils import add_noise, preprocess_data
+
 keras = tf.keras
 
 from keras.models import *
@@ -19,8 +21,6 @@ def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_
               Input((output_patch_height * output_y_patches, output_patch_width * output_x_patches, 1))]
 
     x, mask_indices, unmask_indices, y = inputs
-
-    print(y.shape)
 
     mae.patches.trainable = False
     x = mae.patches(x)
@@ -61,3 +61,184 @@ def DenoiseCT(mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_
     y = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches)(y)
 
     return Model(inputs=inputs, outputs=y)
+
+
+class DenoiseCTModel(Model):
+    def __init__(self, mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512,
+                 output_patch_height=16, output_patch_width=16, output_x_patches=16, output_y_patches=16,
+                 norm=partial(LayerNormalization, epsilon=1e-5), radon=True,
+                 radon_transform=None, fbp=None, dosage=4096, final_shape=(362, 362, 1)):
+        self.num_mask = num_mask
+
+        self.dec_dim = dec_dim
+        self.dec_layers = dec_layers
+        self.dec_heads = dec_heads
+        self.dec_mlp_units = dec_mlp_units
+
+        self.output_patch_height = output_patch_height
+        self.output_patch_width = output_patch_width
+        self.output_x_patches = output_x_patches
+        self.output_y_patches = output_y_patches
+
+        self.norm = norm
+
+        self.radon = radon
+        self.radon_transform = radon_transform
+        self.fbp = fbp
+        self.dosage = dosage
+
+        self.final_shape = final_shape
+
+        self.input_shape = mae.inp_shape
+        self.num_patches = mae.num_patches
+
+        self.patches = Patches(self.output_patch_width, self.output_patch_height, name='dec_patches')
+        self.patch_encoder = PatchEncoder(self.output_y_patches * self.output_x_patches, self.dec_dim,
+                                          embedding_type='learned', name='dec_projection')
+
+        self.dec_blocks = [
+            DecoderBlock(self.dec_heads, self.mae.enc_dim, self.dec_dim, mlp_units=self.dec_mlp_units,
+                         num_patches=self.num_patches, dropout=self.mae.dropout, activation=self.mae.activation,
+                         norm=self.norm, name=f'dec_block_{i}')
+            for i in range(self.dec_layers)
+        ]
+
+        self.norm_layer = self.norm(name='output_norm')
+
+        self.dense = Dense(self.output_patch_height * self.output_patch_width, name='output_projection')
+        self.patch_decoder = PatchDecoder(self.output_patch_width, self.output_patch_height,
+                                          self.output_x_patches, self.output_y_patches)
+
+        self.resize = Resizing(
+            final_shape[0], final_shape[1]
+        )
+
+    def call(self, inputs, training=None, mask=None):
+        x, mask_indices, unmask_indices, y = inputs
+
+        self.mae.patches.trainable = False
+        x = self.mae.patches(x)
+
+        self.mae.patch_encoder.trainable = False
+        self.mae.patch_encoder.num_mask = self.num_mask
+
+        (
+            unmasked_embeddings,
+            masked_embeddings,
+            unmasked_positions,
+            mask_indices,
+            unmask_indices,
+        ) = self.mae.patch_encoder(x, mask_indices, unmask_indices)
+
+        # Pass the unmaksed patche to the encoder.
+        encoder_outputs = unmasked_embeddings
+
+        for enc_block in self.mae.enc_blocks:
+            enc_block.trainable = False
+            encoder_outputs = enc_block(encoder_outputs)
+
+        self.mae.enc_norm.trainable = False
+        encoder_outputs = self.mae.enc_norm(encoder_outputs)
+
+        # Create the decoder inputs.
+        encoder_outputs = encoder_outputs + unmasked_positions
+        x = tf.concat([encoder_outputs, masked_embeddings], axis=1)
+
+        y = self.patches(y)
+        y = self.patch_encoder(y)
+
+        for dec_block in self.dec_blocks:
+            y = dec_block((y, x))
+
+        y = self.norm_layer(y)
+        y = self.dense(y)
+        y = self.patch_encoder(y)
+
+        return self.resize(y)
+
+    def train_step(self, data):
+        x, y = data
+
+        if self.radon:
+            # apply radon transform
+            sinogram = self.radon_transform(tf.image.resize(tf.expand_dims(y, axis=-1), (362, 362)), training=False)
+            sinogram = tf.clip_by_value(sinogram, 0, 10) * 0.46451485
+
+            # preprocess data
+            sinogram = add_noise(sinogram, dose=self.dose)
+            fbp = self.fbp(sinogram, training=False)  # todo may need to do some postprocessing on fbp
+            fbp = tf.image.central_crop(fbp, self.final_shape[0]/self.input_shape[0])
+
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
+            _, fbp = preprocess_data(sinogram, fbp, resize_img=False)
+            y = self.resize(y)
+
+            x = (sinogram, x[1], x[2], fbp)
+        else:
+            # preprocess data
+            sinogram, y = preprocess_data(x[0], y, resize_img=False)
+            x = (sinogram, x[1], x[2], x[3])
+
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)
+            loss = self.compiled_loss(y, y_pred)
+
+        gradients = tape.gradient(loss, self.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+
+        self.compiled_metrics.update_state(y, y_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    def test_step(self, data):
+        x, y = data
+
+        # preprocess data
+        sinogram, y = preprocess_data(x[0], y, resize_img=False)
+        _, fbp = preprocess_data(sinogram, x[3], resize_img=False)
+        fbp = tf.image.central_crop(fbp, self.final_shape[0]/self.input_shape[0])
+
+        # call model
+        y_pred = self((sinogram, x[1], x[2], fbp), training=False)
+
+        # evaluate loss
+        self.compiled_loss(y, y_pred)
+        self.compiled_metrics.update_state(y, y_pred)
+
+        return {m.name: m.result() for m in self.metrics}
+
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        norm_cls = deserialize(config['norm']).__class__
+        del config['norm']['config']['name']
+        norm = partial(norm_cls, **config['norm']['config'])
+        del config['norm']
+
+        return cls(**config, norm=norm)
+
+    def get_config(self):
+        cfg = super(DenoiseCTModel, self).get_config()
+        cfg.update({
+            'input_shape': self.inp_shape,
+            'sinogram_height': self.sinogram_height,
+            'sinogram_width': self.sinogram_width,
+            'enc_dim': self.enc_dim,
+            'enc_layers': self.enc_layers,
+            'enc_mlp_units': self.enc_mlp_units,
+            'enc_heads': self.enc_heads,
+            'dec_layers': self.dec_layers,
+            'dec_heads': self.dec_heads,
+            'dec_mlp_units': self.dec_mlp_units,
+            'dropout': self.dropout,
+            'activation': self.activation,
+            'mask_ratio': self.mask_ratio,
+            'norm': serialize(self.enc_blocks[0].norm1),
+            'output_patch_height': 16,
+            'output_patch_width': 16,
+            'output_x_patches': 16,
+            'output_y_patches': 16,
+            'radon': self.radon,
+            'radon_transform': self.radon_transform,
+            'dose': self.dose
+        })
+        return cfg
