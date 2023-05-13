@@ -169,7 +169,7 @@ class DenoiseCTModel(Model):
 
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
-            fbp = self.fbp(sinogram, training=False)  # todo may need to do some postprocessing on fbp
+            fbp = self.fbp(sinogram, training=False) * 750  # todo may need to do some postprocessing on fbp
             fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
 
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y, resize_img=False, expand_dims=False)
