@@ -2,6 +2,7 @@ import tensorflow as tf
 from keras.layers import *  # todo
 import numpy as np
 import tensorflow_addons as tfa
+from scipy.signal.windows import cosine
 
 
 class LPRadonBase(Layer):
@@ -351,10 +352,12 @@ class LPRadonFBP(LPRadonBase):
         self.zeta_coeffs = tf.convert_to_tensor(self.zeta_coeffs[np.newaxis, :, :self.n_th // 2 + 1] * const,
                                                 dtype=self.complex_dtype)
 
-        self.filter = tf.convert_to_tensor(np.linspace(0., 1., self.n_angles // 2 + 1), dtype=self.complex_dtype)
+        self.filter = tf.convert_to_tensor(cosine(self.n_angles)[:self.n_angles // 2 + 1],
+                                           dtype=self.complex_dtype)
 
     def call(self, inputs, *args, **kwargs):
         out = tf.zeros((1, self.n_det * self.n_det, 1))
+        print(self.filter.shape)
 
         inputs = tf.transpose(inputs, (0, 2, 1, 3))
         inputs = tf.signal.rfft(tf.squeeze(inputs, axis=-1))
@@ -429,13 +432,20 @@ def main():
     fbp = back(sinogram)
     print(time.time() - start_time)
 
-    plt.imshow(img[0], cmap='gray')
+    plt.hist(img.flatten(), bins=100)
+    plt.show()
+    fbp = tf.image.central_crop(fbp, 362 / 512)
+    print(tf.reduce_mean(fbp), tf.math.reduce_std(fbp))
+    plt.hist(fbp.numpy().flatten(), bins=100)
     plt.show()
 
-    plt.imshow(sinogram[0], cmap='gray')
-    plt.show()
-
-    plt.imshow(fbp[0], cmap='gray')
+    # plt.imshow(img[0], cmap='gray')
+    # plt.show()
+    #
+    # plt.imshow(sinogram[0], cmap='gray')
+    # plt.show()
+    #
+    plt.imshow(fbp[5], cmap='gray')
     plt.show()
     #
     # plt.imshow(np.reshape(test.pids[2], (test.n_angles, test.n_det)), cmap='gray')
