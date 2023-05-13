@@ -368,7 +368,6 @@ class LPRadonFBP(LPRadonBase):
 
     def call(self, inputs, *args, **kwargs):
         out = tf.zeros((1, self.n_det * self.n_det, 1))
-        test = []
         # out = []
 
         inputs = tf.transpose(inputs, (0, 2, 1, 3))
@@ -390,11 +389,9 @@ class LPRadonFBP(LPRadonBase):
             # ifft
             lp_img = tf.expand_dims(tf.signal.irfft2d(fft_img), -1)
 
-            test.append(lp_img)
-
             out += tfa.image.interpolate_bilinear(lp_img, self.c2lp[k][tf.newaxis, ...]) * self.cids[..., tf.newaxis]
 
-        return test, tf.reshape(out, (-1, self.n_det, self.n_det, 1))
+        return tf.reshape(out, (-1, self.n_det, self.n_det, 1))
 
 
 def splineB3(x2, r):
@@ -443,7 +440,7 @@ def main():
 
     start_time = time.time()
     sinogram = forward(img)
-    steps, fbp = back(sinogram)
+    fbp = back(sinogram)
     print(time.time() - start_time)
 
     plt.hist(img.flatten(), bins=100)
