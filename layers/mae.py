@@ -428,7 +428,7 @@ class MaskedCTransformer(Model):
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, 0], y)
         else:
             # preprocess data
-            sinogram, y = preprocess_data(x, y)
+            sinogram, y = preprocess_data(x, y, resize_img=False)
 
         with tf.GradientTape() as tape:
             y_patches = self.patches_2(y)
@@ -450,7 +450,7 @@ class MaskedCTransformer(Model):
         x, y = data
 
         # preprocess data
-        sinogram, y = preprocess_data(x, y)
+        sinogram, y = preprocess_data(x, y, resize_img=False)
 
         # call model
         y_patches = self.patches_2(y)
