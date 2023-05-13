@@ -618,6 +618,10 @@ class CTransformerModel(Model):
 
         return {m.name: m.result() for m in self.metrics}
 
+    @property
+    def metrics(self):
+        return [*super(CTransformerModel, self).metrics, self.loss_tracker]
+
     @classmethod
     def from_config(cls, config, custom_objects=None):
         norm_cls = deserialize(config['norm']).__class__
