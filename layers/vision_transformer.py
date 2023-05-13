@@ -538,12 +538,6 @@ class CTransformerModel(Model):
         self.depatchify = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                                        name=f"{name}_depatchify")
 
-        self.resize = Resizing(
-            final_shape[0], final_shape[1]
-        )
-
-        self.loss_tracker = keras.metrics.Mean(name='loss')
-
     def call(self, inputs, training=None, mask=None):
         # patch
         x = self.patches(inputs)
@@ -567,7 +561,7 @@ class CTransformerModel(Model):
 
         # reshape
         x = self.depatchify(x)
-        return self.resize(x)
+        return x
 
     def train_step(self, data):
         x, y = data
@@ -580,8 +574,6 @@ class CTransformerModel(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
-
-            y = self.resize(y)
         else:
             # preprocess data
             sinogram, y = preprocess_data(x, y, resize_img=False)
@@ -590,13 +582,14 @@ class CTransformerModel(Model):
             y_pred = self(sinogram, training=True)
             y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
-            loss = tf.math.reduce_mean(tf.square(y - y_pred), axis=-1)
+            y = tf.image.resize(y, self.final_shape[:-1])
+
+            loss = self.compiled_loss(y, y_pred)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
         self.compiled_metrics.update_state(y, y_pred)
-        self.loss_tracker.update_state(loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -605,21 +598,17 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
+        y = tf.image.resize(y, self.final_shape[:-1])
 
         # call model
         y_pred = self(sinogram, training=False)
+        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
         # evaluate loss
+        self.compiled_loss(y, y_pred)
         self.compiled_metrics.update_state(y, y_pred)
 
-        loss = tf.math.reduce_mean(tf.square(y - y_pred), axis=-1)
-        self.loss_tracker.update_state(loss)
-
         return {m.name: m.result() for m in self.metrics}
-
-    @property
-    def metrics(self):
-        return [*super(CTransformerModel, self).metrics, self.loss_tracker]
 
     @classmethod
     def from_config(cls, config, custom_objects=None):
