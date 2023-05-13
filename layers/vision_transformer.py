@@ -538,6 +538,10 @@ class CTransformerModel(Model):
         self.depatchify = PatchDecoder(output_patch_width, output_patch_height, output_x_patches, output_y_patches,
                                        name=f"{name}_depatchify")
 
+        self.resize = Resizing(
+            final_shape[0], final_shape[1]
+        )
+
     def call(self, inputs, training=None, mask=None):
         # patch
         x = self.patches(inputs)
@@ -561,7 +565,7 @@ class CTransformerModel(Model):
 
         # reshape
         x = self.depatchify(x)
-        return x
+        return self.resize(x)
 
     def train_step(self, data):
         x, y = data
@@ -574,14 +578,15 @@ class CTransformerModel(Model):
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, -1], y, resize_img=False)
+
+            y = self.resize(y)
         else:
             # preprocess data
             sinogram, y = preprocess_data(x, y, resize_img=False)
 
         with tf.GradientTape() as tape:
             y_pred = self(sinogram, training=True)
-            y_pred = tf.image.resize(y_pred, (362, 362))
-            y = tf.image.resize(y, (362, 362))
+            y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
             loss = self.compiled_loss(y, y_pred)
 
@@ -597,11 +602,13 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
-        y = tf.image.resize(y, (362, 362))
+        tf.print(tf.math.reduce_mean(sinogram), tf.math.reduce_mean(y))
 
         # call model
         y_pred = self(sinogram, training=False)
-        y_pred = tf.image.resize(y_pred, (362, 362))
+        tf.print(tf.math.reduce_mean(y_pred))
+
+        tf.print(self.compiled_loss(y, y_pred))
 
         # evaluate loss
         self.compiled_loss(y, y_pred)
