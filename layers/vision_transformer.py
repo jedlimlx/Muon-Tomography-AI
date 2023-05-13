@@ -582,9 +582,9 @@ class CTransformerModel(Model):
 
         with tf.GradientTape() as tape:
             y_pred = self(sinogram, training=True)
-            y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+            # y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
-            y = tf.image.resize(y, self.final_shape[:-1])
+            # y = tf.image.resize(y, self.final_shape[:-1])
 
             loss = self.compiled_loss(y, y_pred)
 
@@ -599,11 +599,11 @@ class CTransformerModel(Model):
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
         print(sinogram.shape)
-        y = tf.image.resize(y, self.final_shape[:-1])
+        # y = tf.image.resize(y, self.final_shape[:-1])
 
         # call model
         y_pred = self(sinogram, training=False)
-        y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
+        # y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
         # evaluate loss
         self.compute_loss(x, y, y_pred, None)
