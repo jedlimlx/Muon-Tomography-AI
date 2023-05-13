@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+from data_generation.lpradon import LPRadonForward, LPRadonFBP
 from utils import add_noise, preprocess_data
 
 keras = tf.keras
@@ -215,8 +216,12 @@ class DenoiseCTModel(Model):
         del config['norm']['config']['name']
         norm = partial(norm_cls, **config['norm']['config'])
         del config['norm']
+        radon_transform = LPRadonForward(**config['radon_transform'])
+        del config['radon_transform']
+        fbp = LPRadonFBP(**config['fbp'])
+        del config['fbp']
 
-        return cls(**config, norm=norm)
+        return cls(**config, norm=norm, radon_transform=radon_transform, fbp=fbp)
 
     def get_config(self):
         cfg = super(DenoiseCTModel, self).get_config()
@@ -235,12 +240,13 @@ class DenoiseCTModel(Model):
             'activation': self.activation,
             'mask_ratio': self.mask_ratio,
             'norm': serialize(self.enc_blocks[0].norm1),
-            'output_patch_height': 16,
-            'output_patch_width': 16,
-            'output_x_patches': 16,
-            'output_y_patches': 16,
+            'output_patch_height': self.output_patch_height,
+            'output_patch_width': self.output_patch_width,
+            'output_x_patches': self.output_x_patches,
+            'output_y_patches': self.output_y_patches,
             'radon': self.radon,
-            'radon_transform': self.radon_transform,
-            'dose': self.dose
+            'radon_transform': self.radon_transform.get_config(),
+            'fbp': self.fbp.get_config(),
+            'dose': self.dose,
         })
         return cfg

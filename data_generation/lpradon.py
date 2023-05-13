@@ -6,7 +6,7 @@ from scipy.signal.windows import cosine
 
 
 class LPRadonBase(Layer):
-    def __init__(self, n_angles, n_det=None, n_span=3, cor=None, interp_type='cubic', *args, **kwargs):
+    def __init__(self, n_angles, n_det=None, n_span=3, cor=None, interp_type='linear', *args, **kwargs):
         super(LPRadonBase, self).__init__(*args, **kwargs)
 
         self.cor = cor  # I have no idea what this variable does. It should be n // 2
@@ -36,6 +36,16 @@ class LPRadonBase(Layer):
         self.rho_lp = None
         self.b3_com = None
         self.zeta_coeffs = None
+
+    def get_config(self):
+        cfg = super(LPRadonBase, self).get_config()
+        cfg.update({
+            'n_angles': self.n_angles,
+            'n_det': self.n_det,
+            'n_span': self.n_span,
+            'cor': self.cor
+        })
+        return cfg
 
     def pre_compute(self):
         self.beta = np.pi / self.n_span
@@ -352,12 +362,14 @@ class LPRadonFBP(LPRadonBase):
         self.zeta_coeffs = tf.convert_to_tensor(self.zeta_coeffs[np.newaxis, :, :self.n_th // 2 + 1] * const,
                                                 dtype=self.complex_dtype)
 
-        self.filter = tf.convert_to_tensor(cosine(self.n_angles)[:self.n_angles // 2 + 1],
+        self.filter = tf.convert_to_tensor(np.fft.fftshift(cosine(self.n_angles))[:self.n_angles // 2 + 1] * np.bartlett(self.n_angles)[:self.n_angles // 2 + 1],
                                            dtype=self.complex_dtype)
+        self.filter *= tf.cast(tf.linspace(0., 1., self.n_angles // 2 + 1) < 0.2, dtype=self.complex_dtype)
 
     def call(self, inputs, *args, **kwargs):
         out = tf.zeros((1, self.n_det * self.n_det, 1))
-        print(self.filter.shape)
+        test = []
+        # out = []
 
         inputs = tf.transpose(inputs, (0, 2, 1, 3))
         inputs = tf.signal.rfft(tf.squeeze(inputs, axis=-1))
@@ -378,9 +390,11 @@ class LPRadonFBP(LPRadonBase):
             # ifft
             lp_img = tf.expand_dims(tf.signal.irfft2d(fft_img), -1)
 
+            test.append(lp_img)
+
             out += tfa.image.interpolate_bilinear(lp_img, self.c2lp[k][tf.newaxis, ...]) * self.cids[..., tf.newaxis]
 
-        return tf.reshape(out, (-1, self.n_det, self.n_det, 1))
+        return test, tf.reshape(out, (-1, self.n_det, self.n_det, 1))
 
 
 def splineB3(x2, r):
@@ -429,7 +443,7 @@ def main():
 
     start_time = time.time()
     sinogram = forward(img)
-    fbp = back(sinogram)
+    steps, fbp = back(sinogram)
     print(time.time() - start_time)
 
     plt.hist(img.flatten(), bins=100)
@@ -438,6 +452,15 @@ def main():
     print(tf.reduce_mean(fbp), tf.math.reduce_std(fbp))
     plt.hist(fbp.numpy().flatten(), bins=100)
     plt.show()
+    plt.imshow(fbp[0], cmap='gray')
+    plt.show()
+
+    # for i in steps:
+    #     plt.imshow(i[0], cmap='gray')
+    #     plt.show()
+
+    plt.plot(np.abs(back.filter))
+    plt.show()
 
     # plt.imshow(img[0], cmap='gray')
     # plt.show()
@@ -445,8 +468,6 @@ def main():
     # plt.imshow(sinogram[0], cmap='gray')
     # plt.show()
     #
-    plt.imshow(fbp[5], cmap='gray')
-    plt.show()
     #
     # plt.imshow(np.reshape(test.pids[2], (test.n_angles, test.n_det)), cmap='gray')
     # plt.show()

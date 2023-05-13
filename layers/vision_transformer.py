@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+from data_generation.lpradon import LPRadonForward
+
 keras = tf.keras
 
 import numpy as np
@@ -596,6 +598,7 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
+        print(sinogram.shape)
         y = tf.image.resize(y, self.final_shape[:-1])
 
         # call model
@@ -613,8 +616,10 @@ class CTransformerModel(Model):
         del config['norm']['config']['name']
         norm = partial(norm_cls, **config['norm']['config'])
         del config['norm']
+        radon_transform = LPRadonForward(**config['radon_transform'])
+        del config['radon_transform']
 
-        return cls(**config, norm=norm)
+        return cls(**config, norm=norm, radon_transform=radon_transform)
 
     def get_config(self):
         cfg = super(CTransformerModel, self).get_config()
@@ -633,12 +638,13 @@ class CTransformerModel(Model):
             'activation': self.activation,
             'mask_ratio': self.mask_ratio,
             'norm': serialize(self.enc_blocks[0].norm1),
-            'output_patch_height': 16,
-            'output_patch_width': 16,
-            'output_x_patches': 16,
-            'output_y_patches': 16,
+            'output_patch_height': self.output_patch_height,
+            'output_patch_width': self.output_patch_width,
+            'output_x_patches': self.output_x_patches,
+            'output_y_patches': self.output_y_patches,
             'radon': self.radon,
-            'radon_transform': self.radon_transform,
-            'dose': self.dose
+            'radon_transform': self.radon_transform.get_config(),
+            'dose': self.dose,
+            'final_shape': self.final_shape
         })
         return cfg
