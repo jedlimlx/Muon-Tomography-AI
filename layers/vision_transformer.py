@@ -590,7 +590,7 @@ class CTransformerModel(Model):
             y_pred = self(sinogram, training=True)
             y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
-            loss = tf.math.reduce_mean(tf.square(y, y_pred), axis=-1)
+            loss = tf.math.reduce_mean(tf.square(y - y_pred), axis=-1)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -612,7 +612,7 @@ class CTransformerModel(Model):
         # evaluate loss
         self.compiled_metrics.update_state(y, y_pred)
 
-        loss = tf.math.reduce_mean(tf.square(y, y_pred), axis=-1)
+        loss = tf.math.reduce_mean(tf.square(y - y_pred), axis=-1)
         self.loss_tracker.update_state(loss)
 
         return {m.name: m.result() for m in self.metrics}
