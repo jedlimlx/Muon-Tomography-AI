@@ -425,7 +425,7 @@ class MaskedCTransformer(Model):
 
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
-            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y)
+            sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, 0], y)
         else:
             # preprocess data
             sinogram, y = preprocess_data(x, y)

@@ -542,6 +542,8 @@ class CTransformerModel(Model):
             final_shape[0], final_shape[1]
         )
 
+        self.loss_tracker = keras.metrics.Mean(name='loss')
+
     def call(self, inputs, training=None, mask=None):
         # patch
         x = self.patches(inputs)
@@ -588,12 +590,13 @@ class CTransformerModel(Model):
             y_pred = self(sinogram, training=True)
             y_pred = tf.image.resize(y_pred, self.final_shape[:-1])
 
-            loss = self.compiled_loss(y, y_pred)
+            loss = tf.math.reduce_mean(tf.square(y, y_pred))
 
         gradients = tape.gradient(loss, self.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
 
         self.compiled_metrics.update_state(y, y_pred)
+        self.loss_tracker.update_state(loss)
 
         return {m.name: m.result() for m in self.metrics}
 
@@ -602,15 +605,22 @@ class CTransformerModel(Model):
 
         # preprocess data
         sinogram, y = preprocess_data(x, y, resize_img=False)
+        tf.print(tf.math.reduce_mean(sinogram), tf.math.reduce_mean(y))
 
         # call model
         y_pred = self(sinogram, training=False)
 
         # evaluate loss
-        self.compiled_loss(y, y_pred)
         self.compiled_metrics.update_state(y, y_pred)
 
+        loss = tf.math.reduce_mean(tf.square(y, y_pred))
+        self.loss_tracker.update_state(loss)
+
         return {m.name: m.result() for m in self.metrics}
+
+    @property
+    def metrics(self):
+        return [*super(CTransformerModel, self).metrics, self.loss_tracker]
 
     @classmethod
     def from_config(cls, config, custom_objects=None):
