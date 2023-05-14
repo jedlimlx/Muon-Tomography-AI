@@ -378,7 +378,8 @@ class LPRadonFBP(LPRadonBase):
 
         for k in range(self.n_span):
             # interp from polar to log-polar
-            lp_sinogram = tfa.image.interpolate_bilinear(inputs, self.lp2p[k]) * self.lpids[..., tf.newaxis]
+            lp_sinogram = interpolate_nearest(inputs, tf.cast(tf.math.rint(self.lp2p[k]), tf.int32)) * self.lpids[
+                ..., tf.newaxis]
             lp_sinogram = tf.reshape(lp_sinogram, (-1, self.n_rho, self.n_th, 1))
             # lp_sinogram = tf.transpose(lp_sinogram, (0, 2, 1, 3))
 
@@ -389,9 +390,10 @@ class LPRadonFBP(LPRadonBase):
             # ifft
             lp_img = tf.expand_dims(tf.signal.irfft2d(fft_img), -1)
 
-            out += tfa.image.interpolate_bilinear(lp_img, self.c2lp[k][tf.newaxis, ...]) * self.cids[..., tf.newaxis]
+            out += interpolate_nearest(lp_img, tf.cast(tf.math.rint(self.c2lp[k][tf.newaxis, ...]), tf.int32)) * \
+                   self.cids[..., tf.newaxis]
 
-        return tf.reshape(out, (-1, self.n_det, self.n_det, 1))
+        return tf.reshape(out, (-1, self.n_det, self.n_det, 1)), inputs
 
 
 def splineB3(x2, r):
