@@ -255,6 +255,8 @@ class LPRadonFBP(LPRadonBase):
         self.c2lp = []
         self.lp2p = []
 
+        self.filter_param = filter_param
+
     def build(self, input_shape):
         b, h, w, c = input_shape
         self.n = w
