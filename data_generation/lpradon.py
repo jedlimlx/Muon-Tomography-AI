@@ -393,7 +393,7 @@ class LPRadonFBP(LPRadonBase):
             out += interpolate_nearest(lp_img, tf.cast(tf.math.rint(self.c2lp[k][tf.newaxis, ...]), tf.int32)) * \
                    self.cids[..., tf.newaxis]
 
-        return tf.reshape(out, (-1, self.n_det, self.n_det, 1)), inputs
+        return tf.reshape(out, (-1, self.n_det, self.n_det, 1))
 
 
 def splineB3(x2, r):
