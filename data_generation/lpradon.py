@@ -364,7 +364,7 @@ class LPRadonFBP(LPRadonBase):
 
         self.filter = tf.convert_to_tensor(np.fft.fftshift(cosine(self.n_angles))[:self.n_angles // 2 + 1] * np.bartlett(self.n_angles)[:self.n_angles // 2 + 1],
                                            dtype=self.complex_dtype)
-        self.filter *= tf.cast(tf.linspace(0., 1., self.n_angles // 2 + 1) < filter_param, dtype=self.complex_dtype)
+        self.filter *= tf.cast(tf.linspace(0., 1., self.n_angles // 2 + 1) < self.filter_param, dtype=self.complex_dtype)
 
     def call(self, inputs, *args, **kwargs):
         out = tf.zeros((1, self.n_det * self.n_det, 1))
