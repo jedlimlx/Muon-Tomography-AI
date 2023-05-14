@@ -244,7 +244,7 @@ class LPRadonForward(LPRadonBase):
 
 
 class LPRadonFBP(LPRadonBase):
-    def __init__(self, n_angles, n_det=None, n_span=3, cor=None, interp_type='cubic', *args, **kwargs):
+    def __init__(self, n_angles, n_det=None, n_span=3, cor=None, interp_type='cubic', filter_param=0.01, *args, **kwargs):
         super(LPRadonFBP, self).__init__(n_angles, n_det, n_span, cor, interp_type, *args, **kwargs)
 
         self.filter = None
@@ -364,7 +364,7 @@ class LPRadonFBP(LPRadonBase):
 
         self.filter = tf.convert_to_tensor(np.fft.fftshift(cosine(self.n_angles))[:self.n_angles // 2 + 1] * np.bartlett(self.n_angles)[:self.n_angles // 2 + 1],
                                            dtype=self.complex_dtype)
-        self.filter *= tf.cast(tf.linspace(0., 1., self.n_angles // 2 + 1) < 0.2, dtype=self.complex_dtype)
+        self.filter *= tf.cast(tf.linspace(0., 1., self.n_angles // 2 + 1) < filter_strength, dtype=self.complex_dtype)
 
     def call(self, inputs, *args, **kwargs):
         out = tf.zeros((1, self.n_det * self.n_det, 1))

@@ -68,7 +68,8 @@ class DenoiseCTModel(Model):
     def __init__(self, mae, num_mask=0, dec_dim=256, dec_layers=8, dec_heads=16, dec_mlp_units=512,
                  output_patch_height=16, output_patch_width=16, output_x_patches=32, output_y_patches=32,
                  norm=partial(LayerNormalization, epsilon=1e-5), radon=True,
-                 radon_transform=None, fbp=None, dosage=4096, final_shape=(362, 362, 1), *args, **kwargs):
+                 radon_transform=None, fbp=None, dosage=4096, noise_level=0.1,
+                 noise="gaussian", final_shape=(362, 362, 1), *args, **kwargs):
         super(DenoiseCTModel, self).__init__(*args, **kwargs)
         self.num_mask = num_mask
 
@@ -115,6 +116,9 @@ class DenoiseCTModel(Model):
         self.resize = Resizing(
             final_shape[0], final_shape[1]
         )
+
+        self.noise = noise
+        self.noise_level = noise_level
 
     def call(self, inputs, training=None, mask=None):
         x, mask_indices, unmask_indices, y = inputs
@@ -169,8 +173,11 @@ class DenoiseCTModel(Model):
 
             # preprocess data
             sinogram = add_noise(sinogram, dose=self.dose)
-            fbp = self.fbp(sinogram, training=False) * 750  # todo may need to do some postprocessing on fbp
-            fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
+            if self.noise == "fbp":
+                fbp = self.fbp(sinogram, training=False) * 750  # todo may need to do some postprocessing on fbp
+                fbp = tf.image.central_crop(fbp, self.final_shape[0] / self.inp_shape[0])
+            else:
+                fbp = y + self.noise_level * tf.random.normal(tf.shape(y))
 
             sinogram, y = preprocess_data(sinogram[:, ::-1, ::-1, :], y, resize_img=False, expand_dims=False)
             _, fbp = preprocess_data(sinogram, fbp, resize_img=True, expand_dims=False)
