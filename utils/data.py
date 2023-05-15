@@ -18,9 +18,9 @@ def preprocess_data(sinogram, gt, resize_img=True, expand_dims=True):
 
 
 def add_noise(img, dose=4096):
-    img = dose * tf.math.exp(-img)
+    img = dose * tf.math.exp(-img * 81.35858)
 
-    img = img + tf.random.normal(shape=tf.shape(img), mean=0.0, stddev=dose ** 0.5, dtype=tf.float32)
+    img = img + tf.random.normal(shape=tf.shape(img), mean=0.0, stddev=img ** 0.5, dtype=tf.float32)
     img = tf.clip_by_value(img / dose, 0.1 / dose, tf.float32.max)
-    img = -tf.math.log(img)
+    img = -tf.math.log(img) / 81.35858
     return img

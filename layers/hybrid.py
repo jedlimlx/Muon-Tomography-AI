@@ -119,14 +119,13 @@ class DenoiseCTModel(Model):
 
         self.noise = noise
         self.noise_level = noise_level
+        self.mae.trainable = False
 
     def call(self, inputs, training=None, mask=None):
         x, mask_indices, unmask_indices, y = inputs
 
-        self.mae.patches.trainable = False
         x = self.mae.patches(x)
 
-        self.mae.patch_encoder.trainable = False
         self.mae.patch_encoder.num_mask = self.num_mask
 
         (
@@ -141,10 +140,8 @@ class DenoiseCTModel(Model):
         encoder_outputs = unmasked_embeddings
 
         for enc_block in self.mae.enc_blocks:
-            enc_block.trainable = False
             encoder_outputs = enc_block(encoder_outputs)
 
-        self.mae.enc_norm.trainable = False
         encoder_outputs = self.mae.enc_norm(encoder_outputs)
 
         # Create the decoder inputs.
@@ -187,7 +184,8 @@ class DenoiseCTModel(Model):
         else:
             # preprocess data
             sinogram, y = preprocess_data(x[0], y, resize_img=False, expand_dims=False)
-            x = (sinogram, x[1], x[2], x[3])
+            _, fbp = preprocess_data(x[0], x[3], resize_img=True, expand_dims=False)
+            x = (sinogram, x[1], x[2], fbp)
 
         with tf.GradientTape() as tape:
             y_pred = self(x, training=True)
