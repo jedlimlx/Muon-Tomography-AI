@@ -69,7 +69,7 @@ class ConsistencyModel(Model):
 
         for weight, ema_weight in zip(self.base_model.weights, self.ema_model.weights):
             ema_weight.assign(tf.stop_gradient(self.ema * ema_weight + (1 - self.ema) * weight))
-        self.base_model.compiled_metrics.update_state(y, y_pred)
+        self.base_model.compiled_metrics.update_state(y_orig, y_pred)
 
         self.loss_coeff.assign(self.loss_coeff * self.loss_coeff_decay)
 
