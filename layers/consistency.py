@@ -108,7 +108,7 @@ class ConsistencyModel(Model):
             if n != 0:
                 denoised = tf.image.resize(denoised, (fbp.shape[1], fbp.shape[2]))
                 t = self.sample_t(n)
-                std_dev_est = fbp - denoised
+                std_dev_est = tf.sqrt((fbp - denoised) ** 2)
                 noise = tf.random.normal(shape=tf.shape(fbp), mean=denoised, stddev=std_dev_est)
 
                 denoised += t * noise
