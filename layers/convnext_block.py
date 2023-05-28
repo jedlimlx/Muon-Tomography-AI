@@ -1,4 +1,7 @@
 import tensorflow as tf
+
+from layers import Triplane
+
 keras = tf.keras
 
 from keras.layers import *
@@ -100,7 +103,7 @@ def ConvNeXtBlock(
                 name=name + "_depthwise_conv",
             )(x)
         elif dims == 3:
-            x = Conv3D(
+            x = Triplane(
                 filters=projection_dim,
                 kernel_size=kernel_size,
                 padding="same",
