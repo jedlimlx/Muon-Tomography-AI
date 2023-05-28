@@ -1,15 +1,11 @@
-import math
-import numpy as np
-import matplotlib.pyplot as plt
-
 import tensorflow as tf
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+keras = tf.keras
+
+from keras.layers import *
+from keras.models import *
 
 from layers import ResidualBlock, ConvNeXtBlock, DropBlock2D, DropBlock3D, MBConvBlock
-from layers import Patches, PatchEncoder, PatchDecoder
 from losses import binary_dice_coef_loss
-
 from metrics import get_flops
 
 
@@ -64,7 +60,8 @@ def stack(
             x = ConvNeXtBlock(filters, name=name + "_block1", activation=activation, kernel_size=kernel_size,
                               drop_connect_rate=drop_connect_rate, dims=dims, attention=attention)(x)
             for i in range(2, blocks + 1):
-                x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation, kernel_size=kernel_size,
+                x = ConvNeXtBlock(filters, name=name + "_block" + str(i), activation=activation,
+                                  kernel_size=kernel_size,
                                   drop_connect_rate=drop_connect_rate, dims=dims, attention=attention)(x)
         elif block_type == "efficientnet":
             for i in range(1, blocks):
@@ -196,11 +193,13 @@ class TomographyModel(Model):
 
             conv_1 = Conv1D if params["initial_dimensions"] == 1 else Conv2D
             if params["block_type"] == "resnet" or params["block_type"] == "efficientnet":
-                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same",
+                           name="stem")(x)
                 x = BatchNormalization(name="stem_batch_norm")(x)
                 x = Activation(params["activation"], name="stem_activation")(x)
             elif params["block_type"] == "convnext":
-                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same", name="stem")(x)
+                x = conv_1(params["filters"][0], params["kernel_size"], strides=1, use_bias=True, padding="same",
+                           name="stem")(x)
                 x = LayerNormalization(name="stem_layer_norm")(x)
                 x = Activation(params["activation"], name="stem_activation")(x)
 
@@ -275,9 +274,11 @@ class TomographyModel(Model):
                 output_3d.append(conv)
 
             if params["dimensions"] == 3:
-                outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
+                outputs = Conv3D(1, 3, padding="same", name="output", activation=params["final_activation"])(
+                    output_3d[-1])
             else:
-                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(output_3d[-1])
+                outputs = Conv2D(1, 3, padding="same", name="output", activation=params["final_activation"])(
+                    output_3d[-1])
         elif params["task"] == "ct":
             inputs = Input(shape=(params["sinogram_width"], params["num_sinograms"], 1))
 

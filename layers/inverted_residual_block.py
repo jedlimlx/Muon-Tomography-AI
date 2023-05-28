@@ -1,4 +1,7 @@
 import tensorflow as tf
+
+from layers import Triplane
+
 keras = tf.keras
 
 from keras.layers import *
@@ -40,8 +43,8 @@ def MBConvBlock(
 ):
     """MBConv block: Mobile Inverted Residual Bottleneck."""
 
-    conv = Conv2D if dims == 2 else Conv3D
-    dw_conv = DepthwiseConv2D if dims == 2 else Conv3D
+    conv = Conv2D if dims == 2 else Triplane
+    dw_conv = DepthwiseConv2D if dims == 2 else Triplane
     global_avg = GlobalAveragePooling2D if dims == 2 else GlobalAveragePooling3D
 
     def apply(inputs):
