@@ -13,12 +13,13 @@ def Triplane(filters, kernel_size, padding="same", groups=1, name=None, activati
 
     def apply(x):
         def f(x, i):
+            shape = x.shape
+
             x = tf.reshape(x, (-1, shape[1], shape[2], shape[3] * shape[4]))
-            x = Conv2D(filters, kernel_size, padding=padding, groups=groups, name=f"{name}_conv2d_{i}")(x)
+            x = Conv2D(shape[3] * shape[4], kernel_size, padding=padding, groups=groups, name=f"{name}_conv2d_{i}")(x)
             x = tf.reshape(x, (-1, shape[1], shape[2], shape[3], shape[4]))
             return x
 
-        shape = x.shape
 
         # (b, x, y, z, c) -> (b, x, y, z * c)
         x = f(x, 0)
