@@ -19,7 +19,7 @@ def Triplane(filters, kernel_size, padding="same", groups=1, name=None, activati
             return x
 
         x = Conv3D(filters, kernel_size, padding=padding, groups=groups, activation=activation,
-                   name=f"{name}_conv3d")
+                   name=f"{name}_conv3d")(x)
 
         # (b, x, y, z, c) -> (b, x, y, z * c)
         x = f(x, 0)
