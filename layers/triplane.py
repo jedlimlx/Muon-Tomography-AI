@@ -18,6 +18,8 @@ def Triplane(filters, kernel_size, padding="same", groups=1, name=None, activati
             x = tf.reshape(x, (-1, shape[1], shape[2], shape[3], shape[4]))
             return x
 
+        x = Conv3D(filters, kernel_size, padding=padding, groups=groups, activation=activation,
+                   name=f"{name}_conv3d")
 
         # (b, x, y, z, c) -> (b, x, y, z * c)
         x = f(x, 0)
