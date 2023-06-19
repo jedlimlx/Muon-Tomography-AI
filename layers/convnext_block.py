@@ -1,15 +1,11 @@
 import tensorflow as tf
 
-from layers import Triplane
-
-keras = tf.keras
-
-from keras.layers import *
+from tensorflow.keras.layers import *
 
 from layers.regularisation import StochasticDepth
-from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
+# from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
 
-from keras_cv_attention_models.attention_layers import mhsa_with_multi_head_relative_position_embedding
+# from keras_cv_attention_models.attention_layers import mhsa_with_multi_head_relative_position_embedding
 
 
 class LayerScale(Layer):
@@ -46,6 +42,115 @@ class LayerScale(Layer):
         return config
 
 
+class ConvNeXtBlock(Layer):
+
+    def __init__(self,
+                 projection_dim,
+                 drop_connect_rate=0.0,
+                 layer_scale_init_value=1e-6,
+                 activation="gelu",
+                 kernel_size=7,
+                 attention="se",
+                 dims=2,
+                 **kwargs):
+        """
+        ConvNeXt block.
+            References:
+              - https://arxiv.org/abs/2201.03545
+              - https://github.com/facebookresearch/ConvNeXt/blob/main/models/convnext.py
+            Notes:
+              In the original ConvNeXt implementation (linked above), the authors use
+              `Dense` layers for pointwise convolutions for increased efficiency.
+              Following that, this implementation also uses the same.
+            Args:
+              projection_dim (int): Number of filters for convolution layers. In the
+                ConvNeXt paper, this is referred to as projection dimension.
+              drop_connect_rate (float): Probability of dropping paths. Should be within
+                [0, 1].
+              layer_scale_init_value (float): Layer scale value. Should be a small float
+                number.
+              activation (string): activation function for the ConvNeXt block
+              kernel_size (int): kernel size of the convolution
+              dims (int): Number of dimensions for the block. Either 2 or 3
+              attention (string): attention module to use
+              name: name to path to the keras layer.
+        """
+
+        super(ConvNeXtBlock, self).__init__(**kwargs)
+
+        if dims == 2:
+            self.conv = Conv2D(
+                filters=projection_dim,
+                kernel_size=kernel_size,
+                padding="same",
+                groups=projection_dim,
+                name=self.name + "/depthwise_conv",
+            )
+        elif dims == 3:
+            self.conv = Conv3D(
+                filters=projection_dim,
+                kernel_size=kernel_size,
+                padding="same",
+                groups=projection_dim,
+                name=self.name + "/depthwise_conv",
+            )
+
+        self.norm = LayerNormalization(epsilon=1e-6, name=self.name + '/layer_norm')
+        self.pw_conv_1 = Dense(4 * projection_dim, activation=activation, name=self.name + '/pointwise_conv_1')
+        self.pw_conv_2 = Dense(projection_dim, name=self.name + '/pointwise_conv_2')
+
+        self.layer_scale = None
+        if layer_scale_init_value:
+            self.layer_scale = LayerScale(layer_scale_init_value, projection_dim, name=self.name + '/layer_scale')
+
+        self.sd = None
+        if drop_connect_rate:
+            self.sd = StochasticDepth(drop_connect_rate, name=self.name + '/stochastic_depth')
+
+    def call(self, inputs, *args, **kwargs):
+        x = inputs
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.pw_conv_1(x)
+        x = self.pw_conv_2(x)
+
+        if self.layer_scale:
+            x = self.layer_scale(x)
+
+        if self.sd:
+            x = self.sd([inputs, x])
+        else:
+            x = inputs + x
+
+        return x
+
+
+def test_convnext():
+    def transform2d(_):
+        inp = tf.random.normal(shape=(8, 8, 4))
+        return inp, inp * 0.2
+
+    ds_2d = tf.data.Dataset.random(0, False).map(transform2d).batch(1)
+
+    model2d = tf.keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=2)])
+    model2d.compile(optimizer=tf.keras.optimizers.SGD(learning_rate=1), loss='mse')
+    model2d.fit(ds_2d, steps_per_epoch=100)
+
+    def transform3d(_):
+        inp = tf.random.normal(shape=(8, 8, 8, 4))
+        return inp, inp * 0.2
+
+    ds_3d = tf.data.Dataset.random(0, False).map(transform3d).batch(1)
+
+    model3d = tf.keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=3)])
+    model3d.compile(optimizer='sgd', loss='mse')
+    model3d.fit(ds_3d, steps_per_epoch=100)
+
+
+if __name__ == "__main__":
+    test_convnext()
+
+'''
 def ConvNeXtBlock(
         projection_dim,
         drop_connect_rate=0.0,
@@ -103,7 +208,7 @@ def ConvNeXtBlock(
                 name=name + "_depthwise_conv",
             )(x)
         elif dims == 3:
-            x = Triplane(
+            x = Conv3D(
                 filters=projection_dim,
                 kernel_size=kernel_size,
                 padding="same",
@@ -141,3 +246,4 @@ def ConvNeXtBlock(
             return inputs + layer(x)
 
     return apply
+'''
