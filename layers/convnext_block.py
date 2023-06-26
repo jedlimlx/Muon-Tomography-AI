@@ -125,10 +125,11 @@ class ConvNeXtBlock(Layer):
         return x
 
 
-def main():
+if __name__ == "__main__":
     def transform2d(_):
         inp = tf.clip_by_value(tf.random.normal(shape=(8, 8, 4)), 0., tf.float32.max)
         return inp, inp * 0.2
+
 
     ds_2d = tf.data.Dataset.random(0, False).map(transform2d).batch(256)
 
@@ -136,19 +137,17 @@ def main():
     model2d.compile(optimizer=tf.keras.optimizers.SGD(learning_rate=1), loss='mse')
     model2d.fit(ds_2d, steps_per_epoch=1000, validation_data=ds_2d, validation_steps=100)
 
+
     def transform3d(_):
         inp = tf.clip_by_value(tf.random.normal(shape=(8, 8, 8, 4)), 0., tf.float32.max)
         return inp, inp * 0.2
+
 
     ds_3d = tf.data.Dataset.random(0, False).map(transform3d).batch(64)
 
     model3d = tf.keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=3)])
     model3d.compile(optimizer=tf.keras.optimizers.SGD(learning_rate=1), loss='mse')
     model3d.fit(ds_3d, steps_per_epoch=1000, validation_data=ds_3d, validation_steps=100)
-
-
-if __name__ == "__main__":
-    main()
 
 '''
 def ConvNeXtBlock(

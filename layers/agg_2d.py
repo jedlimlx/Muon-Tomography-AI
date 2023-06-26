@@ -94,3 +94,6 @@ class Agg2D(Model):
     def call(self, inputs, training=None, mask=None):
         x = self.mlp(inputs)
         return x
+
+
+
