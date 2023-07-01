@@ -1,7 +1,7 @@
 import tensorflow as tf
-from keras.layers import *
-from keras.models import *
-from convnext_block import ConvNeXtBlock
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
+from layers.convnext_block import ConvNeXtBlock
 import numpy as np
 
 _2d_base_params = {
@@ -91,7 +91,7 @@ class Agg2D(Model):
                 stack.append(ConvNeXtBlock(projection_dim=downward_filters[stage],
                                            dims=2,
                                            name=f'{self.name}/stage_{stage}/block_{c}'))
-            self.downward_convs.append(Sequential(stack))
+            self.downward_convs.append(Sequential(stack, name=f'{self.name}/stage_{stage}'))
 
         for stage in range(len(downward_blocks) - 1):
             self.downsampling.append(Sequential([
@@ -108,7 +108,7 @@ class Agg2D(Model):
                 stack.append(ConvNeXtBlock(projection_dim=upward_filters[stage],
                                            dims=2,
                                            name=f'{self.name}/up_{stage}/block_{c}'))
-            self.upward_convs.append(Sequential(stack))
+            self.upward_convs.append(Sequential(stack, name=f'{self.name}/up_{stage}'))
 
             self.upsampling.append(Sequential([
                 LayerNormalization(epsilon=1e-6, name=f'{self.name}/up_{stage}/upsampling/layer_norm'),
@@ -117,13 +117,15 @@ class Agg2D(Model):
 
             self.upsampling_convs.append(
                 Conv2D(filters=upward_filters[stage],
-                       kernel_size=3,
+                       kernel_size=1,
                        padding='same',
                        name=f'{self.name}/up_{stage}/upsampling/conv2d')
             )
 
     def call(self, inputs, training=None, mask=None):
-        b, n, _ = tf.shape(inputs)
+        print(inputs.shape)
+        b = tf.shape(inputs)[0]
+        n = inputs.shape[1]
         features = self.mlp(inputs)
 
         # funny stuff to build a sparse tensor
@@ -140,7 +142,7 @@ class Agg2D(Model):
         # each element in the inner list corresponds to the feature map size for one channel.
         positions = tf.reshape(
             features[..., :len(self.scatter_filters) * 2],
-            (-1, features.shape[1], len(self.scatter_filters), 2)
+            (-1, inputs.shape[1], len(self.scatter_filters), 2)
         )
 
         positions = tf.repeat(
@@ -168,12 +170,16 @@ class Agg2D(Model):
         indices = tf.concat([batch_indices, positions], axis=-1)
 
         # indices for channel dim
-        channel_indices = tf.broadcast_to(self.channel_indices, [*(tf.shape(indices)[:-1]), 1])
+        channel_indices = tf.broadcast_to(self.channel_indices,
+                                          (tf.shape(indices)[0], indices.shape[1], indices.shape[2], 1))
+        print(indices.shape, channel_indices.shape)
         indices = tf.concat([indices, channel_indices], axis=-1)
 
         # take the remaining elements of features
+        print(features.shape)
         features = features[..., len(self.scatter_filters) * 2:]
-        features = tf.reshape(features, (-1))
+        print(features.shape)
+        features = tf.reshape(features, (-1,))
 
         indices = tf.reshape(indices, (-1, tf.shape(indices)[-1]))
 
@@ -184,6 +190,8 @@ class Agg2D(Model):
         )
 
         x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(n, tf.float32)
+        x.set_shape([inputs.shape[0], self.resolution, self.resolution,
+                     sum([len(lst) for lst in self.scatter_filters])])
 
         skip_outputs = []
         for i, block in enumerate(self.downward_convs):
