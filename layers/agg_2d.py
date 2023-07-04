@@ -140,8 +140,13 @@ class Agg2D(Model):
         # the position is encoded as part of the feature vector
         # `scatter_filters` is a nested list. each inner list corresponds to one position.
         # each element in the inner list corresponds to the feature map size for one channel.
+        # positions = tf.reshape(
+        #     features[..., :len(self.scatter_filters) * 2],
+        #     (-1, inputs.shape[1], len(self.scatter_filters), 2)
+        # )
+
         positions = tf.reshape(
-            features[..., :len(self.scatter_filters) * 2],
+            tf.gather(inputs, [1, 2, 7, 8], axis=-1) / 2 + 1,
             (-1, inputs.shape[1], len(self.scatter_filters), 2)
         )
 
@@ -172,13 +177,10 @@ class Agg2D(Model):
         # indices for channel dim
         channel_indices = tf.broadcast_to(self.channel_indices,
                                           (tf.shape(indices)[0], indices.shape[1], indices.shape[2], 1))
-        print(indices.shape, channel_indices.shape)
         indices = tf.concat([indices, channel_indices], axis=-1)
 
         # take the remaining elements of features
-        print(features.shape)
         features = features[..., len(self.scatter_filters) * 2:]
-        print(features.shape)
         features = tf.reshape(features, (-1,))
 
         indices = tf.reshape(indices, (-1, tf.shape(indices)[-1]))
