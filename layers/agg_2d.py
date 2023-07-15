@@ -1,6 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 from layers.convnext_block import ConvNeXtBlock
 import numpy as np
 
@@ -123,7 +123,6 @@ class Agg2D(Model):
             )
 
     def call(self, inputs, training=None, mask=None):
-        print(inputs.shape)
         b = tf.shape(inputs)[0]
         n = inputs.shape[1]
         features = self.mlp(inputs)
@@ -179,8 +178,6 @@ class Agg2D(Model):
                                           (tf.shape(indices)[0], indices.shape[1], indices.shape[2], 1))
         indices = tf.concat([indices, channel_indices], axis=-1)
 
-        # take the remaining elements of features
-        features = features[..., len(self.scatter_filters) * 2:]
         features = tf.reshape(features, (-1,))
 
         indices = tf.reshape(indices, (-1, tf.shape(indices)[-1]))
