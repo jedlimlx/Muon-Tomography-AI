@@ -5,3 +5,6 @@ from layers.convnext_block import ConvNeXtBlock
 from layers.inverted_residual_block import MBConvBlock, FusedMBConvBlock
 from layers.regularisation import StochasticDepth, DropBlock1D, DropBlock2D, DropBlock3D
 from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
+from layers.kmeans import KMeans
+from layers.agg_3d import Agg3D
+from layers.agg_2d import Agg2D
