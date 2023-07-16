@@ -2,7 +2,6 @@ from keras_core.layers import *
 from keras_core.models import *
 from keras_core import ops
 from keras_core import random
-import tensorflow as tf
 
 '''
 Adapted from: https://git01lab.cs.univie.ac.at/wolffa95/tpu-k-means.
@@ -33,7 +32,7 @@ class KMeans(Layer):
     def call(self, points, *args, **kwargs):
         # funny stuff to make segment sum work with a batch dimension (a lot of transposing and reshaping)
         b = ops.shape(points)[0]
-        offset = tf.expand_dims(ops.arange(b, dtype='int64') * self.clusters, -1)
+        offset = ops.expand_dims(ops.arange(b, dtype='int64') * self.clusters, -1)
 
         centroids = self.initialize_centroids(points)
         points_reshaped = ops.reshape(points, (-1, self.dim))
