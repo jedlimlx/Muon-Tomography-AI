@@ -43,9 +43,12 @@ def read_trajectory_data(file, k=5):
     inputs = [np.array([x[0] + x[-1][:3]]) for x in muons if len(x) >= 2]
     
     def f(x):
-        if len(x) < k + 2:
+        if len(x) == 2:
+            return np.zeros((1+k*3,))
+        elif len(x) < k + 2:
             temp = np.concatenate([np.array(x[1:-1]), np.zeros((k+2-len(x), 4))], axis=0)
-        else: temp = np.array(x[1:-1])
+        else:
+            temp = np.array(x[1:-1])
 
         return np.concatenate([[min(len(x) - 2, 5)], temp[np.sort(np.argpartition(temp[:, 3], -k)[-k:]), :3].flatten()], axis=0)
     

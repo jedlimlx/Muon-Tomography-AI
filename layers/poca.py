@@ -1,4 +1,8 @@
 import tensorflow as tf
+keras = tf.keras
+
+from keras.layers import *
+from keras.models import *
 
 
 def poca(x, p, ver_x, ver_p):
@@ -20,3 +24,26 @@ def poca(x, p, ver_x, ver_p):
     poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
 
     return poca_points
+
+
+# a neural network version of poca :)
+def poca_nn(layers=3, d=64, k=5, name="poca_nn"):
+    muons = Input((None, 12,))
+    dosage = tf.shape(muons)[1]
+
+    x = muons
+
+    for i in range(layers):
+        x = Dense(2*d, activation="swish", name=f"{name}_hidden_layer_{i}")(x)
+        x = Dense(d, activation="swish", name=f"{name}_projection_{i}")(x)
+        feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+
+        x = tf.concat([muons, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+
+    outputs = Dense(1 + 3*k)(x)
+
+    return Model(inputs=muons, outputs=outputs)
+
+
+if __name__ == "__main__":
+    model = poca_nn()
