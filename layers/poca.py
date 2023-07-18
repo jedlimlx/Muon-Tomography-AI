@@ -1,8 +1,7 @@
 import tensorflow as tf
-keras = tf.keras
 
-from keras.layers import *
-from keras.models import *
+from keras_core.layers import *
+from keras_core.models import *
 
 
 def poca(x, p, ver_x, ver_p):
@@ -35,6 +34,7 @@ def poca_nn(layers=3, d=64, k=5, name="poca_nn"):
 
     for i in range(layers):
         x = Dense(2*d, activation="swish", name=f"{name}_hidden_layer_{i}")(x)
+        x = LayerNormalization()(x)
         x = Dense(d, activation="swish", name=f"{name}_projection_{i}")(x)
         feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
 
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     train_ds = ds.skip(10)
 
     # building model
-    model = poca_nn(d=128)
-    model.compile(optimizer="adam", loss=loss)
+    model = poca_nn(d=128, layers=4)
+    model.compile(optimizer=tf.keras.optimizers.Adam(lr=3e-4), loss=loss)
 
     model.fit(train_ds, epochs=30, validation_data=val_ds)

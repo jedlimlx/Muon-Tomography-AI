@@ -1,7 +1,6 @@
 import tensorflow as tf
-keras = tf.keras
 
-from keras.layers import *
+from keras_core.layers import *
 
 from layers.regularisation import StochasticDepth
 from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block

@@ -1,5 +1,5 @@
 import tensorflow as tf
-import tensorflow.keras.backend as K
+import keras_core.backend as K
 
 
 # Stolen from https://github.com/maxvfischer/keras-image-segmentation-loss-functions

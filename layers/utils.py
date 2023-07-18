@@ -1,7 +1,6 @@
 import tensorflow as tf
-keras = tf.keras
 
-from keras.layers import *
+from keras_core.layers import *
 
 import numpy as np
 import tensorflow_addons as tfa

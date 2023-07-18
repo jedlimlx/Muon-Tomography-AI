@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import *
+from keras_core.layers import *
 
 
 def Triplane(filters, kernel_size, padding="same", groups=1, name=None, activation=None):

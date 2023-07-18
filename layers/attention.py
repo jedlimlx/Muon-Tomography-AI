@@ -1,8 +1,7 @@
 import tensorflow as tf
-keras = tf.keras
 
-from keras.layers import *
-from keras.models import Sequential
+from keras_core.layers import *
+from keras_core.models import Sequential
 
 
 class SqueezeAndExcite2D(Layer):

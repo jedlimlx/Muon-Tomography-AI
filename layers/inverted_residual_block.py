@@ -2,9 +2,7 @@ import tensorflow as tf
 
 from layers import Triplane
 
-keras = tf.keras
-
-from keras.layers import *
+from keras_core.layers import *
 
 
 CONV_KERNEL_INITIALIZER = {

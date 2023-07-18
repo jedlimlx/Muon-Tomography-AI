@@ -1,6 +1,8 @@
 import tensorflow as tf
-from keras.layers import *
-from keras.models import *
+
+from keras_core.layers import *
+from keras_core.models import *
+
 from layers.convnext_block import ConvNeXtBlock
 from layers.poca import poca
 from layers.agg_2d import MLP
