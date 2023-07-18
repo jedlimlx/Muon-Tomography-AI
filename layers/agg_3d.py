@@ -35,6 +35,13 @@ class Agg3D(Model):
             ['gelu', 'linear'],
         )
 
+        # coordinates to put in sparse tensor
+        self.coordinates = tf.stack(tf.meshgrid(
+            tf.range(resolution, dtype=tf.int64),
+            tf.range(resolution, dtype=tf.int64),
+            tf.range(resolution, dtype=tf.int64),
+        ), axis=-1)
+
         # stuff for building the sparse tensor
         self.offsets = tf.stack(tf.meshgrid(
             tf.range(point_size, dtype=tf.int64),
@@ -132,6 +139,8 @@ class Agg3D(Model):
 
         x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(n, tf.float32)
         x.set_shape((inputs.shape[0], self.resolution, self.resolution, self.resolution, self.downward_filters[0]))
+
+        x = tf.concat([x, tf.repeat(self.coordinates[tf.newaxis, ...], tf.shape(x)[0])], axis=-1)
 
         skip_outputs = []
         for i, block in enumerate(self.downward_convs):

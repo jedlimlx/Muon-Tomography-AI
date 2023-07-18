@@ -48,6 +48,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = f'../scattering_prediction.tfrecord'
+filename = f'../scattering_prediction_legit.tfrecord'
 writer = tf.data.experimental.TFRecordWriter(filename)
 writer.write(serialized_features_dataset)

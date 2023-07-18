@@ -45,5 +45,43 @@ def poca_nn(layers=3, d=64, k=5, name="poca_nn"):
     return Model(inputs=muons, outputs=outputs)
 
 
+def loss(y, y_pred):
+    n = y[:, :, 0:1]
+    mask = tf.repeat(
+        tf.repeat(
+            tf.range(16, dtype=tf.float32)[tf.newaxis, :], tf.shape(y)[1], axis=0
+        )[tf.newaxis, ...], tf.shape(y)[0], axis=0
+    ) <= 3 * tf.repeat(n, 16, axis=-1)
+    return tf.math.reduce_sum(tf.square(y - y_pred) * tf.cast(mask, tf.float32)) / \
+        tf.math.reduce_sum(tf.cast(mask, tf.float32))
+
+
 if __name__ == "__main__":
-    model = poca_nn()
+    # Create a description of the features.
+    feature_description = {
+        'x': tf.io.FixedLenFeature([], tf.string),
+        'y': tf.io.FixedLenFeature([], tf.string),
+        'voxels': tf.io.FixedLenFeature([], tf.string)
+    }
+
+    def _parse_example(example_proto):
+        res = tf.io.parse_single_example(example_proto, feature_description)
+        x = tf.io.parse_tensor(res['x'], out_type=tf.double)
+        y = tf.io.parse_tensor(res['y'], out_type=tf.double)
+        voxels = tf.io.parse_tensor(res['voxels'], out_type=tf.int32)
+
+        x.set_shape((None, 12))
+        y.set_shape((None, 1+5*3))
+        voxels.set_shape((64, 64, 64))
+
+        return tf.cast(x[:1000], tf.float32), tf.cast(y[:1000], tf.float32)
+
+    ds = tf.data.TFRecordDataset("../scattering_prediction.tfrecord").map(_parse_example).batch(16)
+    val_ds = ds.take(10)
+    train_ds = ds.skip(10)
+
+    # building model
+    model = poca_nn(d=128)
+    model.compile(optimizer="adam", loss=loss)
+
+    model.fit(train_ds, epochs=30, validation_data=val_ds)
