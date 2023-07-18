@@ -92,7 +92,7 @@ class Agg3D(Model):
                 ))
             self.upward_convs.append(Sequential(stack, name=f'{self.name}/upward_stage_{stage}'))
 
-        self.final_conv = Conv3D(1, 1, activation='relu', name=f'{self.name}/final_conv')
+        self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
 
     def call(self, inputs, training=None, mask=None):
         b = tf.shape(inputs)[0]
