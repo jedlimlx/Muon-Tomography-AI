@@ -26,23 +26,37 @@ def poca(x, p, ver_x, ver_p):
 
 
 # a neural network version of poca :)
-def poca_nn(layers=3, d=64, k=5, name="poca_nn"):
-    muons = Input((None, 12,))
-    dosage = tf.shape(muons)[1]
+class PoCAModel(Model):
+    def __init__(self, num_layers=3, d=64, k=5, *args, **kwargs):
+        super(PoCAModel, self).__init__(*args, **kwargs)
 
-    x = muons
+        self.num_layers = num_layers
+        self.d = d
+        self.k = k
 
-    for i in range(layers):
-        x = Dense(2*d, activation="swish", name=f"{name}_hidden_layer_{i}")(x)
-        x = LayerNormalization()(x)
-        x = Dense(d, activation="swish", name=f"{name}_projection_{i}")(x)
-        feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+        # intermediate layers
+        self.nn = [
+            Sequential([
+                Dense(2 * self.d, activation="swish", name=f"{self.name}_hidden_layer_1_{i}"),
+                Dense(2 * self.d, activation="swish", name=f"{self.name}_hidden_layer_2_{i}"),
+                LayerNormalization(),
+                Dense(self.d, activation="swish", name=f"{self.name}_projection_{i}")
+            ])
+            for i in range(self.num_layers)
+        ]
 
-        x = tf.concat([muons, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+        self.final_layer = Dense(1+3*self.k)
 
-    outputs = Dense(1 + 3*k)(x)
+    def call(self, muons, training=None, mask=None):
+        dosage = tf.shape(muons)[1]
 
-    return Model(inputs=muons, outputs=outputs)
+        x = muons
+        for i in range(self.num_layers):
+            x = self.nn[i](x)
+            feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+            x = tf.concat([muons, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+
+        return self.final_layer(x)
 
 
 def loss(y, y_pred):
@@ -81,7 +95,7 @@ if __name__ == "__main__":
     train_ds = ds.skip(10)
 
     # building model
-    model = poca_nn(d=128, layers=4)
-    model.compile(optimizer=tf.keras.optimizers.Adam(lr=3e-4), loss=loss)
+    model = PoCAModel()
+    model.compile(optimizer="adam", loss="mse")
 
-    model.fit(train_ds, epochs=30, validation_data=val_ds)
+    model.fit(train_ds, epochs=30, validation_data=loss)
