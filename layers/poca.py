@@ -1,7 +1,8 @@
 import tensorflow as tf
+keras = tf.keras
 
-from keras_core.layers import *
-from keras_core.models import *
+from keras.layers import *
+from keras.models import *
 
 
 def poca(x, p, ver_x, ver_p):
@@ -37,12 +38,9 @@ class PoCAModel(Model):
         # intermediate layers
         self.nn = [
             Sequential([
-                Dense(2 * self.d, activation="swish", name=f"{self.name}_hidden_layer_1_{i}"),
-                Dense(2 * self.d, activation="swish", name=f"{self.name}_hidden_layer_2_{i}"),
-                LayerNormalization(),
-                Dense(self.d, activation="swish", name=f"{self.name}_projection_{i}")
-            ])
-            for i in range(self.num_layers)
+                Dense(4 * self.d, activation="gelu", name=f"{self.name}_hidden_layer_{i}"),
+                Dense(self.d, name=f"{self.name}_projection_{i}")
+            ]) for i in range(self.num_layers)
         ]
 
         self.final_layer = Dense(1+3*self.k)
@@ -53,8 +51,9 @@ class PoCAModel(Model):
         x = muons
         for i in range(self.num_layers):
             x = self.nn[i](x)
+
             feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
-            x = tf.concat([muons, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+            x = tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
 
         return self.final_layer(x)
 
@@ -96,6 +95,6 @@ if __name__ == "__main__":
 
     # building model
     model = PoCAModel()
-    model.compile(optimizer="adam", loss="mse")
+    model.compile(optimizer="adam", loss=loss)
 
-    model.fit(train_ds, epochs=30, validation_data=loss)
+    model.fit(train_ds, epochs=30, validation_data=val_ds)
