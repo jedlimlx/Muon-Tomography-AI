@@ -19,7 +19,7 @@ _2d_base_params = {
 
 
 class MLP(Layer):
-    def __init__(self, units, activations, **kwargs):
+    def __init__(self, units, activations, dropout=0.0, **kwargs):
         super(MLP, self).__init__(**kwargs)
 
         assert len(units) == len(activations)
@@ -28,7 +28,12 @@ class MLP(Layer):
         self.activations = activations
 
         self.layers = [
-            Dense(units=units[i], activation=activations[i], name=f'{self.name}/dense_{i}')
+            Sequential(
+                [
+                    Dense(units=units[i], activation=activations[i], name=f'{self.name}/dense_{i}'),
+                    Dropout(dropout, name=f'{self.name}/drop_{i}')
+                ]
+            )
             for i in range(len(units))
         ]
 
