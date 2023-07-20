@@ -2,6 +2,7 @@ from keras_core.layers import *
 from keras_core.models import *
 from keras_core import ops
 from keras_core import random
+import tensorflow as tf
 
 '''
 Adapted from: https://git01lab.cs.univie.ac.at/wolffa95/tpu-k-means.
@@ -19,8 +20,11 @@ class KMeans(Layer):
         self.iterations = iterations
 
     def initialize_centroids(self, points):
-        # todo check if its better if this is random. the input should be random anyways
-        centroids = points[:, :self.clusters, :]
+        # todo replace with keras_core ops when they come out
+        # centroids = random.categorical(ops.ones(ops.shape(points)[:-1]), num_samples=self.clusters)
+        # centroids = ops.take_along_axis(points, ops.expand_dims(centroids, -1), axis=1)
+        centroids = tf.random.shuffle(tf.transpose(points, [1, 0, 2]))[: self.clusters, ...]
+        centroids = tf.transpose(centroids, [1, 0, 2])
         return centroids
 
     def assign_points(self, points, centroids):
@@ -40,7 +44,8 @@ class KMeans(Layer):
             assignments = self.assign_points(points, centroids) + offset
             assignments = ops.reshape(assignments, (-1,))
             centroids = ops.segment_sum(points_reshaped, assignments, num_segments=self.clusters * b, sorted=False)
-            centroids /= ops.segment_sum(ops.ones_like(points_reshaped), assignments, num_segments=self.clusters * b, sorted=False)
+            centroids /= ops.segment_sum(ops.ones_like(points_reshaped), assignments, num_segments=self.clusters * b,
+                                         sorted=False)
 
             centroids = ops.reshape(centroids, (-1, self.clusters, self.dim))
 
@@ -49,7 +54,8 @@ class KMeans(Layer):
 
 def main():
     test_model = Sequential([KMeans(2, 1, 2)])
-    test_data = ops.stack([random.normal((10,), mean=-1, stddev=0.5), random.normal((10,), mean=1, stddev=0.5)], axis=-1)
+    test_data = ops.stack([random.normal((10,), mean=-1, stddev=0.5), random.normal((10,), mean=1, stddev=0.5)],
+                          axis=-1)
     test_data = ops.reshape(test_data, (1, -1, 1))
     print(test_model(test_data))
 
