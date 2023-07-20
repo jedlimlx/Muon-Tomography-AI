@@ -43,17 +43,26 @@ class PoCAModel(Model):
             ]) for i in range(self.num_layers)
         ]
 
+        self.layer_norms = [
+            LayerNormalization() for _ in range(2 * self.num_layers)
+        ]
+
+        self.projection = Dense(self.d, activation="gelu")
         self.final_layer = Dense(1+3*self.k)
 
     def call(self, muons, training=None, mask=None):
         dosage = tf.shape(muons)[1]
 
-        x = muons
+        x = self.projection(muons)
         for i in range(self.num_layers):
-            x = self.nn[i](x)
-
             feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
-            x = tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+            x = x + feature_vector
+            x = self.layer_norms[2*i](x)
+
+            # tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+
+            x = self.nn[i](x) + x
+            x = self.layer_norms[2*i+1](x)
 
         return self.final_layer(x)
 
