@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from keras_core.layers import *
-from keras_core.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
 from layers.convnext_block import ConvNeXtBlock
 
 import numpy as np

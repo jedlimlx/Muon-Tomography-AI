@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from keras_core.layers import *
-from keras_core.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
 
 from layers.convnext_block import ConvNeXtBlock
 from layers.poca import poca
@@ -135,6 +135,8 @@ class Agg3D(Model):
         x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(n, tf.float32)
         x.set_shape((inputs.shape[0], self.resolution, self.resolution, self.resolution, self.downward_filters[0]))
 
+        print(x.shape)
+        
         skip_outputs = []
         for i, block in enumerate(self.downward_convs):
             x = block(x)

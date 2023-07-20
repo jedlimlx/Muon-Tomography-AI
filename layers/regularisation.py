@@ -1,7 +1,8 @@
 import tensorflow as tf
+keras = tf.keras
 
-import keras_core.ops as K
-from keras_core.layers import *
+import keras.backend as K
+from keras.layers import *
 
 
 class StochasticDepth(Layer):
