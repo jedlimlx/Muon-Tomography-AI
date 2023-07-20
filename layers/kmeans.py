@@ -49,7 +49,7 @@ class KMeans(Layer):
 
             centroids = ops.reshape(centroids, (-1, self.clusters, self.dim))
 
-        return self.assign_points(points, centroids)
+        return self.assign_points(points, centroids), centroids
 
 
 def main():
