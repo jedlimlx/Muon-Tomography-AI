@@ -47,21 +47,22 @@ class PoCAModel(Model):
             LayerNormalization() for _ in range(2 * self.num_layers)
         ]
 
-        # self.projection = Dense(self.d, activation="gelu")
+        self.projection = Dense(self.d, activation="gelu")
         self.final_layer = Dense(1+3*self.k)
 
     def call(self, muons, training=None, mask=None):
         dosage = tf.shape(muons)[1]
 
-        # x = self.projection(muons)
-        x = muons
+        x = self.projection(muons)
         for i in range(self.num_layers):
-            x = self.nn[i](x)
-            x = self.layer_norms[2*i+1](x)
-
             feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
-            x = tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
-            x = self.layer_norms[2*i](x)
+            x = x + feature_vector
+            # x = self.layer_norms[2*i](x)
+
+            # tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+
+            x = self.nn[i](x) + x
+            # x = self.layer_norms[2*i+1](x)
 
         return self.final_layer(x)
 
@@ -95,14 +96,14 @@ if __name__ == "__main__":
         y.set_shape((None, 1+5*3))
         voxels.set_shape((64, 64, 64))
 
-        return tf.cast(x[:1000], tf.float32), tf.cast(y[:1000], tf.float32)
+        return tf.cast(x[:750], tf.float32), tf.cast(y[:750], tf.float32)
 
     ds = tf.data.TFRecordDataset("../scattering_prediction.tfrecord").map(_parse_example).batch(16)
     val_ds = ds.take(10)
     train_ds = ds.skip(10)
 
     # building model
-    model = PoCAModel()
+    model = PoCAModel(num_layers=5, d=256)
     model.compile(optimizer="adam", loss=loss)
 
     model.fit(train_ds, epochs=30, validation_data=val_ds)
