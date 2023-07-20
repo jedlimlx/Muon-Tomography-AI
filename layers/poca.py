@@ -1,7 +1,8 @@
 import tensorflow as tf
+keras = tf.keras
 
-from keras_core.layers import *
-from keras_core.models import *
+from keras.layers import *
+from keras.models import *
 
 
 def poca(x, p, ver_x, ver_p):
@@ -26,23 +27,44 @@ def poca(x, p, ver_x, ver_p):
 
 
 # a neural network version of poca :)
-def poca_nn(layers=3, d=64, k=5, name="poca_nn"):
-    muons = Input((None, 12,))
-    dosage = tf.shape(muons)[1]
+class PoCAModel(Model):
+    def __init__(self, num_layers=3, d=64, k=5, *args, **kwargs):
+        super(PoCAModel, self).__init__(*args, **kwargs)
 
-    x = muons
+        self.num_layers = num_layers
+        self.d = d
+        self.k = k
 
-    for i in range(layers):
-        x = Dense(2*d, activation="swish", name=f"{name}_hidden_layer_{i}")(x)
-        x = LayerNormalization()(x)
-        x = Dense(d, activation="swish", name=f"{name}_projection_{i}")(x)
-        feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+        # intermediate layers
+        self.nn = [
+            Sequential([
+                Dense(4 * self.d, activation="gelu", name=f"{self.name}_hidden_layer_{i}"),
+                Dense(self.d, name=f"{self.name}_projection_{i}")
+            ]) for i in range(self.num_layers)
+        ]
 
-        x = tf.concat([muons, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+        self.layer_norms = [
+            LayerNormalization() for _ in range(2 * self.num_layers)
+        ]
 
-    outputs = Dense(1 + 3*k)(x)
+        self.projection = Dense(self.d, activation="gelu")
+        self.final_layer = Dense(1+3*self.k)
 
-    return Model(inputs=muons, outputs=outputs)
+    def call(self, muons, training=None, mask=None):
+        dosage = tf.shape(muons)[1]
+
+        x = self.projection(muons)
+        for i in range(self.num_layers):
+            feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+            x = x + feature_vector
+            x = self.layer_norms[2*i](x)
+
+            # tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
+
+            x = self.nn[i](x) + x
+            x = self.layer_norms[2*i+1](x)
+
+        return self.final_layer(x)
 
 
 def loss(y, y_pred):
@@ -81,7 +103,7 @@ if __name__ == "__main__":
     train_ds = ds.skip(10)
 
     # building model
-    model = poca_nn(d=128, layers=4)
-    model.compile(optimizer=tf.keras.optimizers.Adam(lr=3e-4), loss=loss)
+    model = PoCAModel()
+    model.compile(optimizer="adam", loss=loss)
 
     model.fit(train_ds, epochs=30, validation_data=val_ds)

@@ -4,7 +4,7 @@ import tensorflow as tf
 from data_generation import read_muons_data, read_voxels_data
 
 
-root = r"C:\Users\jedli\Downloads\data"
+root = r"C:\Users\jedli\Documents\muons-simulation"
 
 
 def serialize_example(x1, y1):
@@ -33,11 +33,9 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(2315):
-        start_time = time.time()
-        x = read_muons_data(f"{root}/muons/run_{i}.csv")
+    for i in tqdm.trange(3780):
+        x = read_muons_data(f"{root}/output/run_{i}.csv")
         y = read_voxels_data(f"{root}/voxels/run_{i}.npy")
-        tf.print(time.time() - start_time)
 
         yield serialize_example(x, y)
 
@@ -46,6 +44,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = f'voxels_prediction.tfrecord'
+filename = f'../voxels_prediction.tfrecord'
 writer = tf.data.experimental.TFRecordWriter(filename)
 writer.write(serialized_features_dataset)

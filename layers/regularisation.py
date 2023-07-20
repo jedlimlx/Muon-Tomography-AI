@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from keras_core import backend as K
+import keras_core.ops as K
 from keras_core.layers import *
 
 
@@ -50,7 +50,7 @@ class StochasticDepth(Layer):
 
         shortcut, residual = x
 
-        b_l = K.random_bernoulli([], p=self.survival_probability)
+        b_l = tf.keras.backend.random_bernoulli([], p=self.survival_probability)
 
         if training:
             return shortcut + b_l * residual
