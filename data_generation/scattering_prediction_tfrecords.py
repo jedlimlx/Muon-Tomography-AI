@@ -4,7 +4,7 @@ import tensorflow as tf
 from data_generation import read_trajectory_data, read_voxels_data
 
 
-root = r"C:\Users\jedli\Downloads\data"
+root = r"D:\data"
 
 
 def serialize_example(x, y, voxels):

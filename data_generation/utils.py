@@ -28,7 +28,8 @@ def read_trajectory_data(file, k=5):
                 muons[-1].append([row[1] / 1000 + 0.5, row[2] / 1000 + 0.5, row[3] / 1000 + 0.5, row[4], row[5], row[6], 0])
 
             curr_direction = np.array([row[10], row[11], row[12]])
-            if row[9] < -870 or (np.sum(np.square(prev_direction - curr_direction)) > 1e-5 and row[13] != 0):
+            if (row[9] < -870 and muons[-1][-1][3] < 0) or \
+                    (np.sum(np.square(prev_direction - curr_direction)) > 1e-5 and row[13] != 0):
                 muons[-1].append([
                     row[7] / 1000 + 0.5, row[8] / 1000 + 0.5, row[9] / 1000 + 0.5,
                     curr_direction[0], curr_direction[1], curr_direction[2],
@@ -44,7 +45,6 @@ def read_trajectory_data(file, k=5):
     inputs = [np.array(x[0][:-1] + x[-1][:-1]) for x in muons if len(x) >= 2]
     
     def f(x):
-
         if len(x) == 2:
             return np.zeros((1+k*3,))
 
@@ -62,5 +62,5 @@ def read_trajectory_data(file, k=5):
 
 
 if __name__ == "__main__":
-    root = r"C:\Users\jedli\Downloads\data"
+    root = r"D:\data"
     x, y = read_trajectory_data(f"{root}/output/run_0.csv")
