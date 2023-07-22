@@ -94,14 +94,14 @@ class Agg3D(Model):
                 ))
             self.upward_convs.append(Sequential(stack, name=f'{self.name}/upward_stage_{stage}'))
 
-        self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
+        self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv', dtype="float32")
 
     def call(self, inputs, training=None, mask=None):
         b = tf.shape(inputs)[0]
         n = inputs.shape[1]
 
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz
-        positions = poca(*tf.split(inputs, 4, axis=-1)) * self.resolution
+        positions = poca(*tf.split(tf.cast(inputs, tf.float32), 4, axis=-1)) * self.resolution
         positions = tf.cast(positions, tf.int64)[..., tf.newaxis, :]
         positions = tf.repeat(positions, repeats=self.point_size ** 3, axis=-2)
         positions = tf.clip_by_value(positions + self.offsets, 0, self.resolution - 1)
@@ -132,11 +132,9 @@ class Agg3D(Model):
             dense_shape=(b, n, self.resolution, self.resolution, self.resolution, self.downward_filters[0])
         )
 
-        x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(n, tf.float32)
+        x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(n, x.dtype)
         x.set_shape((inputs.shape[0], self.resolution, self.resolution, self.resolution, self.downward_filters[0]))
 
-        print(x.shape)
-        
         skip_outputs = []
         for i, block in enumerate(self.downward_convs):
             x = block(x)

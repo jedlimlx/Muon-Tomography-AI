@@ -3,9 +3,6 @@ import tensorflow as tf
 from keras.layers import *
 
 from layers.regularisation import StochasticDepth
-# from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAttentionModule, global_context_block
-
-# from keras_cv_attention_models.attention_layers import mhsa_with_multi_head_relative_position_embedding
 
 
 class LayerScale(Layer):
@@ -43,7 +40,6 @@ class LayerScale(Layer):
 
 
 class ConvNeXtBlock(Layer):
-
     def __init__(self,
                  projection_dim,
                  drop_connect_rate=0.0,
@@ -101,7 +97,10 @@ class ConvNeXtBlock(Layer):
 
         self.layer_scale = None
         if layer_scale_init_value:
-            self.layer_scale = LayerScale(layer_scale_init_value, projection_dim, name=self.name + '/layer_scale')
+            self.layer_scale = LayerScale(
+                layer_scale_init_value, projection_dim, name=self.name + '/layer_scale',
+                dtype="float32"
+            )
 
         self.sd = None
         if drop_connect_rate:
@@ -120,7 +119,7 @@ class ConvNeXtBlock(Layer):
         if self.sd:
             x = self.sd([inputs, x])
         else:
-            x = inputs + x
+            x = inputs + tf.cast(x, inputs.dtype)
 
         return x
 
