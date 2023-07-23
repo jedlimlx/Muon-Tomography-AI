@@ -4,7 +4,7 @@ import tensorflow as tf
 from data_generation import read_trajectory_data, read_voxels_data
 
 
-root = r"D:\data"
+root = r"C:\Users\jedli\Documents\muons-simulation"
 
 
 def serialize_example(x, y, voxels):
@@ -34,7 +34,7 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(1055):
+    for i in tqdm.trange(2772):
         try:
             x, y = read_trajectory_data(f"{root}/output/run_{i}.csv")
             voxels = read_voxels_data(f"{root}/voxels/run_{i}.npy")
@@ -48,6 +48,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = f'../scattering_prediction_legit.tfrecord'
+filename = f'../scattering_prediction.tfrecord'
 writer = tf.data.experimental.TFRecordWriter(filename)
 writer.write(serialized_features_dataset)
