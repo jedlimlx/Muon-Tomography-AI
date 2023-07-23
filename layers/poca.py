@@ -28,47 +28,6 @@ def poca(x, p, ver_x, ver_p):
     return poca_points
 
 
-# a neural network version of poca :)
-class PoCAModel(Model):
-    def __init__(self, num_layers=3, d=64, k=5, *args, **kwargs):
-        super(PoCAModel, self).__init__(*args, **kwargs)
-
-        self.num_layers = num_layers
-        self.d = d
-        self.k = k
-
-        # intermediate layers
-        self.nn = [
-            Sequential([
-                Dense(4 * self.d, activation="gelu", name=f"{self.name}_hidden_layer_{i}"),
-                Dense(self.d, name=f"{self.name}_projection_{i}")
-            ]) for i in range(self.num_layers)
-        ]
-
-        self.layer_norms = [
-            LayerNormalization() for _ in range(2 * self.num_layers)
-        ]
-
-        self.projection = Dense(self.d, activation="gelu")
-        self.final_layer = Dense(1+3*self.k)
-
-    def call(self, muons, training=None, mask=None):
-        dosage = tf.shape(muons)[1]
-
-        x = self.projection(muons)
-        for i in range(self.num_layers):
-            feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
-            x = x + feature_vector
-            # x = self.layer_norms[2*i](x)
-
-            # tf.concat([x, tf.repeat(feature_vector, dosage, axis=1)], axis=-1)
-
-            x = self.nn[i](x) + x
-            # x = self.layer_norms[2*i+1](x)
-
-        return self.final_layer(x)
-
-
 class EncoderBlock(Layer):
     def __init__(self, num_heads=16, dim=256, mlp_units=512, dropout=0., out_dim=None, activation='gelu',
                  name='vit_block', norm=partial(LayerNormalization, epsilon=1e-5), **kwargs):
@@ -149,13 +108,44 @@ class PoCATransformer(Model):
         return self.output_projection(x)
 
 
+# a neural network version of poca :)
+class PoCAModel(Model):
+    def __init__(self, num_layers=3, d=64, k=5, *args, **kwargs):
+        super(PoCAModel, self).__init__(*args, **kwargs)
+
+        self.num_layers = num_layers
+        self.d = d
+        self.k = k
+
+        # intermediate layers
+        self.nn = [
+            Sequential([
+                Dense(4 * self.d, activation="gelu", name=f"{self.name}_hidden_layer_{i}"),
+                Dense(self.d, name=f"{self.name}_projection_{i}")
+            ]) for i in range(self.num_layers)
+        ]
+
+        self.final_layer = Dense(1 + 3 * self.k)
+
+    def call(self, muons, training=None, mask=None):
+        lst = []
+
+        x = muons
+        for i in range(self.num_layers):
+            x = self.nn[i](x)
+
+            lst.append(x)
+
+            feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+            x = tf.concat(lst + [x * 0 + feature_vector], axis=-1)  # do some h3x to handle the ragged batch
+
+        return self.final_layer(x)
+
+
 def loss(y, y_pred):
     n = y[:, :, 0:1]
-    mask = tf.repeat(
-        tf.repeat(
-            tf.range(16, dtype=tf.float32)[tf.newaxis, :], tf.shape(y)[1], axis=0
-        )[tf.newaxis, ...], tf.shape(y)[0], axis=0
-    ) <= 3 * tf.repeat(n, 16, axis=-1)
+    mask = (y * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16,
+                                                                     axis=-1)  # more h3x to handle the ragged batch
     return tf.math.reduce_sum(tf.square(y - y_pred) * tf.cast(mask, tf.float32)) / \
         tf.math.reduce_sum(tf.cast(mask, tf.float32))
 
