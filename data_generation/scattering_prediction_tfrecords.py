@@ -34,7 +34,7 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(2772):
+    for i in tqdm.trange(3000):
         try:
             x, y = read_trajectory_data(f"{root}/output/run_{i}.csv")
             voxels = read_voxels_data(f"{root}/voxels/run_{i}.npy")

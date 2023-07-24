@@ -7,25 +7,36 @@ from keras.models import *
 from functools import partial
 
 
-def poca(x, p, ver_x, ver_p):
-    v = tf.linalg.cross(p, ver_p)
+def poca(x, p, ver_x, ver_p, nn=None):
+    if nn is None:
+        v = tf.linalg.cross(p, ver_p)
 
-    m = tf.stack([p, -ver_p, v], axis=-1)
-    b = ver_x - x
+        m = tf.stack([p, -ver_p, v], axis=-1)
+        b = ver_x - x
 
-    m_inv = tf.linalg.pinv(m)
-    t = tf.linalg.matmul(m_inv, b[..., tf.newaxis])
-    scattered = (tf.linalg.det(m) > 1e-8) | (tf.linalg.det(m) < -1e-8)
-    not_scattered = tf.cast(~scattered, tf.float32)[..., tf.newaxis]
-    scattered = tf.cast(scattered, tf.float32)[..., tf.newaxis]
-    t, ver_t, _ = tf.unstack(tf.squeeze(t, axis=-1), axis=-1)
-    t = t[..., tf.newaxis]
-    ver_t = ver_t[..., tf.newaxis]
+        m_inv = tf.linalg.pinv(m)
+        t = tf.linalg.matmul(m_inv, b[..., tf.newaxis])
+        scattered = (tf.linalg.det(m) > 1e-8) | (tf.linalg.det(m) < -1e-8)
+        not_scattered = tf.cast(~scattered, tf.float32)[..., tf.newaxis]
+        scattered = tf.cast(scattered, tf.float32)[..., tf.newaxis]
+        t, ver_t, _ = tf.unstack(tf.squeeze(t, axis=-1), axis=-1)
+        t = t[..., tf.newaxis]
+        ver_t = ver_t[..., tf.newaxis]
 
-    poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
-    poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
+        poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
+        poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
 
-    return poca_points
+        return poca_points
+    else:
+        output = nn(tf.concat([x, p, ver_x, ver_p], axis=-1), training=False)
+
+        return tf.concat([
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 0.5))[:, 1:4],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 1.5))[:, 4:7],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 2.5))[:, 7:10],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 3.5))[:, 10:13],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 4.5))[:, 13:16]
+        ], axis=0)
 
 
 class EncoderBlock(Layer):
