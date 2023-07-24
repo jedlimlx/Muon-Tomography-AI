@@ -31,7 +31,7 @@ def poca(x, p, ver_x, ver_p, nn=None):
         output = nn(tf.concat([x, p, ver_x, ver_p], axis=-1), training=False)
 
         n = tf.math.rint(output[:, :, 0:1])
-        mask = (y * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16, axis=-1)
+        mask = (output * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16, axis=-1)
 
         masked_output = mask * output
         return tf.concat([
