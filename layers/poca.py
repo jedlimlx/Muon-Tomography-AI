@@ -30,12 +30,16 @@ def poca(x, p, ver_x, ver_p, nn=None):
     else:
         output = nn(tf.concat([x, p, ver_x, ver_p], axis=-1), training=False)
 
+        n = tf.math.rint(output[:, :, 0:1])
+        mask = (y * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16, axis=-1)
+
+        masked_output = mask * output
         return tf.concat([
-            tf.gather_nd(output, tf.where(output[:, :, 0] > 0.5))[:, 1:4],
-            tf.gather_nd(output, tf.where(output[:, :, 0] > 1.5))[:, 4:7],
-            tf.gather_nd(output, tf.where(output[:, :, 0] > 2.5))[:, 7:10],
-            tf.gather_nd(output, tf.where(output[:, :, 0] > 3.5))[:, 10:13],
-            tf.gather_nd(output, tf.where(output[:, :, 0] > 4.5))[:, 13:16]
+            masked_output[:, :, 1:4],
+            masked_output[:, :, 4:7],
+            masked_output[:, :, 7:10],
+            masked_output[:, :, 10:13],
+            masked_output[:, :, 13:16]
         ], axis=0)
 
 
@@ -155,8 +159,8 @@ class PoCAModel(Model):
 
 def loss(y, y_pred):
     n = y[:, :, 0:1]
-    mask = (y * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16,
-                                                                     axis=-1)  # more h3x to handle the ragged batch
+    # more h3x to handle the ragged batch
+    mask = (y * 0 + tf.range(16, dtype=tf.float32)) <= 3 * tf.repeat(n, 16, axis=-1)
     return tf.math.reduce_sum(tf.square(y - y_pred) * tf.cast(mask, tf.float32)) / \
         tf.math.reduce_sum(tf.cast(mask, tf.float32))
 
@@ -185,8 +189,24 @@ if __name__ == "__main__":
     val_ds = ds.take(10)
     train_ds = ds.skip(10)
 
+    """
     # building model
     model = PoCATransformer(num_layers=1, dim=64, num_heads=4)
     model.compile(optimizer="adam", loss=loss)
 
     model.fit(train_ds, epochs=30, validation_data=val_ds)
+    """
+
+    for x, y in val_ds.take(1): break
+
+    output = y
+    print(tf.gather_nd(output, tf.where(output[:, :, 0] > 0.5)).shape)
+    print(
+        tf.concat([
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 0.5))[:, 1:4],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 1.5))[:, 4:7],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 2.5))[:, 7:10],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 3.5))[:, 10:13],
+            tf.gather_nd(output, tf.where(output[:, :, 0] > 4.5))[:, 13:16]
+        ], axis=0)
+    )
