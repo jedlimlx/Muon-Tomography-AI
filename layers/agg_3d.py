@@ -26,6 +26,7 @@ class Agg3D(Model):
                  upward_convs=None,
                  upward_filters=None,
                  resolution=None,
+                 poca_nn=None,
                  *args, **kwargs):
         super(Agg3D, self).__init__(*args, **kwargs)
         self.resolution = resolution
@@ -36,6 +37,9 @@ class Agg3D(Model):
             [point_size ** 3 * downward_filters[0] * 4, point_size ** 3 * downward_filters[0]],
             ['gelu', 'linear'],
         )
+
+        # the neural network that approximates PoCA
+        self.poca_nn = poca_nn
 
         # stuff for building the sparse tensor
         self.offsets = tf.stack(tf.meshgrid(
@@ -101,7 +105,7 @@ class Agg3D(Model):
         n = inputs.shape[1]
 
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz
-        positions = poca(*tf.split(tf.cast(inputs, tf.float32), 4, axis=-1)) * self.resolution
+        positions = poca(*tf.split(tf.cast(inputs, tf.float32), 4, axis=-1), poca_nn) * self.resolution
         positions = tf.cast(positions, tf.int64)[..., tf.newaxis, :]
         positions = tf.repeat(positions, repeats=self.point_size ** 3, axis=-2)
         positions = tf.clip_by_value(positions + self.offsets, 0, self.resolution - 1)
