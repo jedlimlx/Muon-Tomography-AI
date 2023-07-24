@@ -105,7 +105,7 @@ class Agg3D(Model):
         n = inputs.shape[1]
 
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz
-        positions = poca(*tf.split(tf.cast(inputs, tf.float32), 4, axis=-1), poca_nn) * self.resolution
+        positions = poca(*tf.split(tf.cast(inputs, tf.float32), 4, axis=-1), self.poca_nn) * self.resolution
         positions = tf.cast(positions, tf.int64)[..., tf.newaxis, :]
         positions = tf.repeat(positions, repeats=self.point_size ** 3, axis=-2)
         positions = tf.clip_by_value(positions + self.offsets, 0, self.resolution - 1)
