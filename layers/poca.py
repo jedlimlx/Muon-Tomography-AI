@@ -40,7 +40,7 @@ def poca(x, p, ver_x, ver_p, nn=None):
             masked_output[:, :, 7:10],
             masked_output[:, :, 10:13],
             masked_output[:, :, 13:16]
-        ], axis=0)
+        ], axis=1)
 
 
 class EncoderBlock(Layer):
