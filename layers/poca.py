@@ -1,8 +1,7 @@
 import tensorflow as tf
-keras = tf.keras
 
-from keras.layers import *
-from keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import *
 
 from functools import partial
 

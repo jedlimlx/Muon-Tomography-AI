@@ -19,12 +19,14 @@ _3d_base_params = {
 
 
 class SparseScatterAndAvg3D(Layer):
-    def __init__(self, resolution, channels, point_size=3, projection_dim=None, **kwargs):
+    def __init__(self, resolution, channels, point_size=3, projection_dim=None, poca_nn=False, **kwargs):
         super().__init__(**kwargs)
         self.resolution = resolution
         self.point_size = point_size
         self.projection_dim = projection_dim
         self.channels = channels
+
+        self.poca_nn = poca_nn
 
         self.offsets = tf.stack(tf.meshgrid(
             tf.range(point_size, dtype=tf.int64),
@@ -43,7 +45,7 @@ class SparseScatterAndAvg3D(Layer):
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs
         b = tf.shape(x)[0]
-        s = tf.shape(x)[1]
+        s = tf.shape(x)[1] * (1 if not self.poca_nn else 5)
         if self.projection_dim:
             x = self.projection(x)
 
@@ -69,8 +71,13 @@ class SparseScatterAndAvg3D(Layer):
         indices = tf.concat([indices, channel_indices], axis=-1)
         indices = tf.reshape(indices, (-1, indices.shape[-1]))
 
-        features = tf.reshape(x, (-1,))
+        if self.poca_nn:
+            features = tf.repeat(x, 5, axis=1)
+        else: features = x
+        features = tf.reshape(features, (-1,))
 
+        tf.print(tf.shape(features))
+        tf.print(tf.shape(indices))
         x = tf.sparse.SparseTensor(
             indices=indices,
             values=features,
@@ -91,17 +98,21 @@ class Agg3D(Model):
                  upward_convs=None,
                  upward_filters=None,
                  resolution=None,
+                 poca_nn=None,
                  *args, **kwargs):
         super(Agg3D, self).__init__(*args, **kwargs)
         self.resolution = resolution
         self.point_size = point_size
         self.downward_filters = downward_filters
 
+        self.poca_nn = poca_nn
+
         self.agg = SparseScatterAndAvg3D(
             resolution=resolution,
             channels=downward_filters[0],
             point_size=point_size,
             projection_dim=point_size ** 3 * downward_filters[0],
+            poca_nn=self.poca_nn is not None
         )
 
         # downward ConvNeXt blocks
@@ -152,11 +163,8 @@ class Agg3D(Model):
         self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
 
     def call(self, inputs, training=None, mask=None):
-        b = tf.shape(inputs)[0]
-        n = inputs.shape[1]
-
-        # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz
-        positions = poca(*tf.split(inputs, 4, axis=-1)) * self.resolution
+        # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
+        positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.poca_nn) * self.resolution
 
         x = self.agg([positions, inputs])
 
@@ -178,6 +186,6 @@ class Agg3D(Model):
 
 
 if __name__ == "__main__":
-    test = Agg3D(**_3d_base_params)
-    print(test.predict(tf.random.uniform(shape=(2, 16384, 12))).shape)
+    test = Agg3D(**_3d_base_params, poca_nn=Dense(16))
+    print(test.predict(tf.random.uniform(shape=(2, 16384, 13))).shape)
     test.summary()
