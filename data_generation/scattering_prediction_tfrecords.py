@@ -4,7 +4,7 @@ import tensorflow as tf
 from data_generation import read_trajectory_data, read_voxels_data
 
 
-root = r"C:\Users\jedli\Documents\muons-simulation"
+root = r"D:\Muons Scattering Data"
 
 
 def serialize_example(x, y, voxels):
@@ -34,7 +34,7 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(3000):
+    for i in tqdm.trange(3563):
         try:
             x, y = read_trajectory_data(f"{root}/output/run_{i}.csv")
             voxels = read_voxels_data(f"{root}/voxels/run_{i}.npy")

@@ -1,198 +1,143 @@
-import math
-import tqdm
-
 import numpy as np
-import pandas as pd
-import tensorflow as tf
-
-import skimage.measure
-
-import matplotlib
-import matplotlib.pyplot as plt
 
 
-def plot_voxels(data, colours=None):
-    ax = plt.figure().add_subplot(projection='3d')
-    if colours is None:
-        ax.voxels(data)
-    else:
-        ax.voxels(
-            data,
-            facecolors=colours,
-            edgecolors=np.clip(2*colours - 0.5, 0, 1)
-        )
+def poca_points(x, p, ver_x, ver_p):
+    v = tf.linalg.cross(p, ver_p)
 
-    plt.show()
+    m = tf.stack([p, -ver_p, v], axis=-1)
+    b = ver_x - x
+
+    m_inv = tf.linalg.pinv(m)
+    t = tf.linalg.matmul(m_inv, b[..., tf.newaxis])
+    scattered = (tf.linalg.det(m) > 1e-8) | (tf.linalg.det(m) < -1e-8)
+    not_scattered = tf.cast(~scattered, tf.float32)[..., tf.newaxis]
+    scattered = tf.cast(scattered, tf.float32)[..., tf.newaxis]
+    t, ver_t, _ = tf.unstack(tf.squeeze(t, axis=-1), axis=-1)
+    t = t[..., tf.newaxis]
+    ver_t = ver_t[..., tf.newaxis]
+
+    poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
+    poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
+
+    return poca_points, scattered
 
 
-# Basically find the point of closest approach of the incoming and outgoing rays
-# and denote that as were the muon scattered.
-# inputs [y, z, py/px, pz/px]
-def poca(inputs_all, outputs_all, resolution=8):
-    voxels = np.zeros((resolution, resolution, resolution), dtype=np.float32)
-    voxels_2 = np.zeros((resolution, resolution, resolution), dtype=np.float32)
-    n_voxels = np.ones((resolution, resolution, resolution), dtype=np.float32)
-    n_voxels = 2 * n_voxels
+def poca_scattering_density(x, p, ver_x, ver_p, resolution=64):
+    b = x.shape[0]
+    dosage = x.shape[1]
 
-    for rotation in range(len(inputs_all)):
-        inputs = inputs_all[rotation]
-        outputs = outputs_all[rotation]
+    coordinates = np.stack(np.meshgrid(
+        np.arange(resolution, dtype=np.int32),
+        np.arange(resolution, dtype=np.int32),
+        np.arange(resolution, dtype=np.int32),
+    ), axis=-1) / resolution
+    coordinates = np.repeat(np.repeat(coordinates[np.newaxis, np.newaxis, ...], dosage, axis=1), b, axis=0)
 
-        # (x, y, z)
-        # (-x, y, -z)
-        # (-z, y, x)
-        # (z, y, -x)
-        # (-y, x, z)
-        # (y, -x, z)
-        def get_pixel(x):
-            def subroutine(x):
-                point = np.floor((x - np.array([335, -15, -15])) / 30 * resolution).astype(np.int32)
-                # point[2] = resolution - point[2] - 1
-                if rotation == 0: return point[0], point[1], point[2]
-                elif rotation == 1: return resolution - point[0] - 1, point[1], resolution - point[2] - 1
-                elif rotation == 2: return resolution - point[2] - 1, point[1], point[0]
-                elif rotation == 3: return point[2], point[1], resolution - point[0] - 1
-                elif rotation == 4: return resolution - point[1] - 1, point[0], point[2]
-                elif rotation == 5: return point[1], resolution - point[0] - 1, point[2]
+    # constructing voxels
+    voxels = np.zeros((b, resolution, resolution, resolution))
+    count = np.zeros((b, resolution, resolution, resolution))
 
-            return subroutine(x)
+    # run poca algorithm to find the scattering points
+    scattering, mask = poca_points(x, p, ver_x, ver_p)
 
-        for i in range(len(inputs)):
-            # define lines A and B by two points
-            a0 = np.array([0, inputs[i, 0], inputs[i, 1]])
-            a1 = np.array([-2, inputs[i, 0] - 2 * inputs[i, 2], inputs[i, 1] - 2 * inputs[i, 3]])
-            b0 = np.array([450, outputs[i, 0], outputs[i, 1]])
-            b1 = np.array([452, outputs[i, 0] + 2 * outputs[i, 2], outputs[i, 1] + 2 * outputs[i, 3]])
+    # expanding dimensions (memory going RIP)
+    ver_x_expanded = np.repeat(
+        np.repeat(
+            np.repeat(
+                ver_x[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
+            ), resolution, axis=3
+        ), resolution, axis=2
+    )
 
-            # compute unit vectors of directions of lines A and B
-            a_hat = (a1 - a0) / np.linalg.norm(a1 - a0)
-            b_hat = (b1 - b0) / np.linalg.norm(b1 - b0)
+    x_expanded = np.repeat(
+        np.repeat(
+            np.repeat(
+                x[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
+            ), resolution, axis=3
+        ), resolution, axis=2
+    )
 
-            # find unit direction vector for line C, which is perpendicular to lines A and B
-            c_hat = np.cross(b_hat, a_hat)
-            c_hat /= np.linalg.norm(c_hat)
+    scattering_expanded = np.repeat(
+        np.repeat(
+            np.repeat(
+                scattering[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
+            ), resolution, axis=3
+        ), resolution, axis=2
+    )
 
-            # find angle scattered
-            angle1 = math.atan(abs((a_hat[1] ** 2 + a_hat[2] ** 2) / a_hat[0]))
-            angle2 = math.atan(abs((b_hat[1] ** 2 + b_hat[2] ** 2) / b_hat[0]))
-            angle_scattered = abs(angle1 - angle2)
+    # considering first segment
+    distance1 = np.linalg.norm(
+        np.cross(coordinates - ver_x_expanded, scattering_expanded - ver_x_expanded, axis=-1), axis=-1
+    ) / np.linalg.norm(scattering - ver_x)
 
-            # solve the system
-            sol = np.linalg.solve(np.array([a_hat, -b_hat, c_hat]).T, b0 - a0)
+    # considering 2nd segment
+    distance2 = np.linalg.norm(
+        np.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded, axis=-1), axis=-1
+    ) / np.linalg.norm(x - scattering)
+    count += np.sum((np.min(distance1, distance2) < 1/(30*resolution)).astype(np.int32), axis=1)
 
-            # add scattering density
-            point = (a0 + sol[0] * a_hat + b0 + sol[1] * b_hat) / 2
-            if 335 < point[0] < 365 and -15 < point[1] < 15 and -15 < point[2] < 15:
-                pixel = get_pixel(point)
-                voxels[pixel] += angle_scattered
-                voxels_2[pixel] += angle_scattered ** 2
-
-                # adding to voxels between initial point and scattering point
-                a0 = a0 + a_hat * (335 / a_hat[0])
-                grad = (point - a0) / (point[0] - a0[0])
-                for t in range(int((point[0] - a0[0]))):
-                    try: n_voxels[tuple(get_pixel(a0 + grad * t))] += 1
-                    except IndexError: break
-
-                # adding to voxels between scattering point and final point
-                b0 = b0 - b_hat * ((450 - 365) / b_hat[0])
-                grad = (b0 - point) / (b0[0] - point[0])
-                for t in range(int(b0[0] - point[0])):
-                    try: n_voxels[tuple(get_pixel(point + grad * t))] += 1
-                    except IndexError: break
-
-    return voxels_2 / n_voxels / (3 / resolution) * 250 ** 2 / 15
+    return count
 
 
 if __name__ == "__main__":
-    dosages = [38000] # + [100, 200, 500, 700, 1000, 2000, 5000, 7000, 10000, 20000, 40000]
-    mses = []
+    import os
+    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-    for dose in dosages:
-        print(f"Running {dose}...")
+    import tensorflow as tf
 
-        total_mse = 0
-        total_ssim = 0
-        total_psnr = 0
+    # List of materials by radiation length
+    # Materials (Air, Concrete, Al, Ti, Fe, Ni, Sn, Ag, Pb, Au, U)
+    radiation_lengths = [36.62, 11.55, 8.897, 3.560, 1.757, 1.424, 1.206, 0.8543, 0.5612, 0.3344, 0.3166]
+    inverse_radiation_length = [1 / x for x in radiation_lengths]
 
-        runs = 128
-        start = 128
-        for i in tqdm.trange(start, start + runs):
-            index = i
+    # Create a description of the features.
+    feature_description = {
+        'x': tf.io.FixedLenFeature([], tf.string),
+        'y': tf.io.FixedLenFeature([], tf.string)
+    }
 
-            inputs_all = []
-            outputs_all = []
-            for rotation in range(6):  # loading inputs
-                df = pd.read_csv(fr"D:/Muons Data/raw_detections/run_{index}_orient_{rotation}.csv")
-                inputs = [[df["ver_y"][x], df["ver_z"][x], df["ver_py"][x] / df["ver_px"][x],
-                           df["ver_pz"][x] / df["ver_px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10][:dose]
-                outputs = [[df["y"][x], df["z"][x], df["py"][x] / df["px"][x],
-                            df["pz"][x] / df["px"][x]] for x in range(len(df)) if df["ver_x"][x] < 10][:dose]
 
-                inputs = np.array(inputs)
-                outputs = np.array(outputs)
+    def _parse_example(example_proto):
+        res = tf.io.parse_single_example(example_proto, feature_description)
+        x = tf.io.parse_tensor(res['x'], out_type=tf.double)
+        y = tf.io.parse_tensor(res['y'], out_type=tf.int32)
+        y.set_shape((64, 64, 64))
 
-                inputs_all.append(inputs)
-                outputs_all.append(outputs)
+        x = tf.cast(x, dtype=tf.float32)
+        return x, y
 
-            inputs_all = np.array(inputs_all)
-            outputs_all = np.array(outputs_all)
 
-            # running algorithm
-            result = poca(inputs_all, outputs_all)
+    def set_dosage(x, y, dosage):
+        x = x[:dosage]
+        x.set_shape((dosage, 12))
+        return x, y
 
-            # loading ground truth
-            voxels = np.load(f"D:/Muons Data/voxels/run_{index}.npy")
-            voxels = skimage.measure.block_reduce(voxels, (8, 8, 8), np.max)
 
-            # voxels = np.rot90(voxels, 2, axes=(0, 2))
+    def construct_ds(dosage):
+        return (
+            tf.data.TFRecordDataset("../voxels_prediction.tfrecord")
+            .map(_parse_example)
+            .filter(lambda x, y: len(x) >= dosage)
+            .map(lambda x, y: set_dosage(x, y, dosage))
+            .map(
+                lambda x, y: (
+                    tf.concat([
+                        x[:, :3] / 1000 + 0.5,
+                        # tf.cast(tf.math.rint(x[:, :3] / 1000 * RESOLUTION), tf.float32) / RESOLUTION + 0.5,
+                        x[:, 3:6] / tf.norm(x[:, 3:6]),
+                        x[:, 6:9] / 1000 + 0.5,
+                        # tf.cast(tf.math.rint(x[:, 6:9] / 1000 * RESOLUTION), tf.float32) / RESOLUTION + 0.5,
+                        x[:, 9:12]
+                    ], axis=1), tf.gather_nd(inverse_radiation_length, tf.cast(y[..., tf.newaxis], tf.int32))
+                )
+            )
+            .batch(1)
+        )
 
-            radiation_lengths = [0, 1 / 1.757, 1 / 1.424, 1 / 1.206, 1 / 0.8543, 1 / 0.5612, 1 / 0.3344, 1 / 0.3166]
-            for k in range(1, len(radiation_lengths)):
-                voxels[voxels == k] = radiation_lengths[k]
+    ds = construct_ds(1000)
 
-            # computing mse
-            mse = np.average((result - voxels) ** 2)
-            total_mse += mse
+    for x, y in ds: break
 
-            # computing psnr
-            # print(np.expand_dims(voxels, axis=-1).shape)
-            psnr = tf.image.psnr(np.expand_dims(voxels, axis=-1), np.expand_dims(result, axis=-1), 3)
-            total_psnr += psnr
-
-            # computing ssim
-            # ssim = tf.image.ssim(tf.constant(voxels.astype(np.int32)), tf.constant(result.astype(np.int32)), 3)
-            # total_ssim += ssim
-
-            # print(f"MSE: {total_mse / (i - start + 1)}")
-            # print(f"PSNR: {total_psnr / (i - start + 1)}")
-            # print(f"SSIM: {total_ssim / (i - start + 1)}")
-
-        print(f"MSE: {total_mse / runs}")
-
-        mses.append(total_mse / runs)
-        # print(f"PSNR: {total_psnr / runs}")
-        # print(f"SSIM: {total_ssim / runs}")
-
-    """
-    # plotting graphs
-    plt.imshow(result[:, 2, :])
-    plt.colorbar()
-    plt.show()
-
-    plt.imshow(voxels[:, 2, :])
-    plt.colorbar()
-    plt.show()
-
-    colours = np.expand_dims(result, axis=-1)
-    colours = np.repeat(np.sqrt(colours), 3, axis=-1)
-    colours = 1 - colours / np.max(np.sqrt(result))
-    colours[:, :, :, 2] = 1
-    plot_voxels(result > 1e-1, colours)
-
-    colours = np.expand_dims(voxels, axis=-1)
-    colours = np.repeat(colours, 3, axis=-1)
-    colours = 1 - colours / np.max(voxels)
-    colours[:, :, :, 2] = 1
-    plot_voxels(voxels > 0, colours)
-    """
+    x = x.numpy()
+    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], resolution=16)
+    print(output)
