@@ -76,8 +76,6 @@ class SparseScatterAndAvg3D(Layer):
         else: features = x
         features = tf.reshape(features, (-1,))
 
-        tf.print(tf.shape(features))
-        tf.print(tf.shape(indices))
         x = tf.sparse.SparseTensor(
             indices=indices,
             values=features,
