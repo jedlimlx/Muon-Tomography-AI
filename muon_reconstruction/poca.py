@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 
 
 def poca_points(x, p, ver_x, ver_p):
