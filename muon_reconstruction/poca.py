@@ -22,7 +22,7 @@ def poca_points(x, p, ver_x, ver_p):
     return poca_points, scattered
 
 
-def poca_scattering_density(x, p, ver_x, ver_p, resolution=64):
+def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
     b = x.shape[0]
     dosage = x.shape[1]
 
@@ -34,7 +34,6 @@ def poca_scattering_density(x, p, ver_x, ver_p, resolution=64):
     coordinates = np.repeat(np.repeat(coordinates[np.newaxis, np.newaxis, ...], dosage, axis=1), b, axis=0)
 
     # constructing voxels
-    voxels = np.zeros((b, resolution, resolution, resolution))
     count = np.zeros((b, resolution, resolution, resolution))
 
     # run poca algorithm to find the scattering points
@@ -74,9 +73,35 @@ def poca_scattering_density(x, p, ver_x, ver_p, resolution=64):
     distance2 = np.linalg.norm(
         np.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded, axis=-1), axis=-1
     ) / np.linalg.norm(x - scattering)
-    count += np.sum((np.min(distance1, distance2) < 1/(30*resolution)).astype(np.int32), axis=1)
 
-    return count
+    # using bitwise OR prevents double counting
+    count += np.sum(
+        np.bitwise_or(
+            np.bitwise_and(
+                distance1 < (r / resolution)**2,
+                coordinates[..., -1] > scattering_expanded[..., -1]
+            ),
+            np.bitwise_and(
+                distance2 < (r / resolution)**2,
+                coordinates[..., -1] < scattering_expanded[..., -1]
+            ),
+        ).astype(np.int32), axis=1
+    )
+
+    # compute the list of scattering angles
+    scattering_angles = np.arccos(np.einsum("ijk,ijl->ij", scattering - ver_x, x - scattering) /
+        (np.linalg.norm(scattering - ver_x) * np.linalg.norm(x - scattering)))
+    scattering_voxels = np.einsum(
+        "bdxyz,bd->bdxyz",
+        (np.sum(np.square(coordinates - scattering_expanded) < (r / resolution)**2, axis=-1) == 3).astype(np.int32),
+        scattering_angles * mask[..., 0]
+    )
+
+    # find scattering density, using unbiased estimator of std
+    scattering_density = np.sum(np.square(scattering_voxels - np.sum(scattering_voxels, axis=1) / count), axis=1) / (count - 1)
+
+    # find radiation length
+    return scattering_density  #scattering_density * np.mean(p_estimate) ** 2 / 13.6 ** 2
 
 
 if __name__ == "__main__":
@@ -113,7 +138,7 @@ if __name__ == "__main__":
         return x, y
 
 
-    def construct_ds(dosage):
+    def construct_ds(dosage, p_error=0.2):
         return (
             tf.data.TFRecordDataset("../voxels_prediction.tfrecord")
             .map(_parse_example)
@@ -127,17 +152,20 @@ if __name__ == "__main__":
                         x[:, 3:6] / tf.norm(x[:, 3:6]),
                         x[:, 6:9] / 1000 + 0.5,
                         # tf.cast(tf.math.rint(x[:, 6:9] / 1000 * RESOLUTION), tf.float32) / RESOLUTION + 0.5,
-                        x[:, 9:12]
+                        x[:, 9:12],
+                        tf.norm(x[:, 3:6], axis=-1, keepdims=True) * tf.random.normal((1,), 1, p_error)
                     ], axis=1), tf.gather_nd(inverse_radiation_length, tf.cast(y[..., tf.newaxis], tf.int32))
                 )
             )
             .batch(1)
         )
 
-    ds = construct_ds(1000)
+    ds = construct_ds(2000)
 
     for x, y in ds: break
 
     x = x.numpy()
-    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], resolution=16)
-    print(output)
+    print(x[:, :, -1])
+
+    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1], resolution=32, r=2)
+    # print(output)
