@@ -89,19 +89,23 @@ class SparseScatterAndAvg3D(Layer):
 
 
 class Agg3D(Model):
-    def __init__(self,
-                 point_size=3,
-                 downward_convs=None,
-                 downward_filters=None,
-                 upward_convs=None,
-                 upward_filters=None,
-                 resolution=None,
-                 poca_nn=None,
-                 *args, **kwargs):
+    def __init__(
+            self,
+            point_size=3,
+            downward_convs=None,
+            downward_filters=None,
+            upward_convs=None,
+            upward_filters=None,
+            resolution=None,
+            noise_level=0.05,
+            poca_nn=None,
+            *args, **kwargs
+    ):
         super(Agg3D, self).__init__(*args, **kwargs)
         self.resolution = resolution
         self.point_size = point_size
         self.downward_filters = downward_filters
+        self.noise_level = noise_level
 
         self.poca_nn = poca_nn
 
@@ -160,10 +164,12 @@ class Agg3D(Model):
 
         self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
 
+        self.gaussian_noise = GaussianNoise(self.noise_level)
+
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
+        inputs = self.gaussian_noise(inputs)
         positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.poca_nn) * self.resolution
-
         x = self.agg([positions, inputs])
 
         skip_outputs = []
