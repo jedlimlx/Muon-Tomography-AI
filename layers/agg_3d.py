@@ -102,12 +102,11 @@ class Agg3D(Model):
 
         self.poca_nn = poca_nn
 
-        self.agg = SparseScatterAndAvg3D(
+        self.agg = ScatterAndAvg3D(
             resolution=resolution,
             channels=downward_filters[0],
             point_size=point_size,
-            projection_dim=point_size ** 3 * downward_filters[0],
-            poca_nn=self.poca_nn is not None
+            projection_dim=point_size ** 3 * downward_filters[0]
         )
 
         # downward ConvNeXt blocks
