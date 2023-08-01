@@ -66,15 +66,14 @@ class ScatterAndAvg3D(Layer):
 
         channel_indices = tf.broadcast_to(self.channel_indices, (b, s, indices.shape[2], 1))
         indices = tf.concat([indices, channel_indices], axis=-1)
-        indices = tf.transpose(indices, [1, 0, 2, 3])
 
-        indices = tf.reshape(indices, (s, -1, indices.shape[-1]))
+        indices = tf.reshape(indices, (-1, indices.shape[-1]))
 
-        x = tf.transpose(x, [1, 0, 2])
-        features = tf.reshape(x, (s, -1))
+        features = tf.reshape(x, (-1,))
 
         x = tf.scatter_nd(indices, features,
                           shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
+
         counts = tf.scatter_nd(indices, tf.ones_like(features),
                                shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
@@ -161,7 +160,7 @@ class Agg3D(Model):
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
         inputs = self.gaussian_noise(inputs)
-        positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.poca_nn) * self.resolution
+        positions = poca(*tf.split(inputs, 4, axis=-1), self.poca_nn) * self.resolution
         x = self.agg([positions, inputs])
 
         skip_outputs = []
@@ -182,6 +181,6 @@ class Agg3D(Model):
 
 
 if __name__ == "__main__":
-    test = Agg3D(**_3d_base_params, poca_nn=Dense(16))
+    test = Agg3D(**_3d_base_params)
     print(test.predict(tf.random.uniform(shape=(2, 16384, 13))).shape)
     test.summary()
