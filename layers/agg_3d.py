@@ -18,7 +18,7 @@ _3d_base_params = {
 }
 
 
-class SparseScatterAndAvg3D(Layer):
+class ScatterAndAvg3D(Layer):
     def __init__(self, resolution, channels, point_size=3, projection_dim=None, poca_nn=False, **kwargs):
         super().__init__(**kwargs)
         self.resolution = resolution
@@ -57,35 +57,28 @@ class SparseScatterAndAvg3D(Layer):
 
         # funny stuff to build a sparse tensor
         # index for batch dim and detections dim
-        batch_indices = tf.stack(tf.meshgrid(
-            tf.range(b, dtype=tf.int64),
-            tf.range(s, dtype=tf.int64),
-            indexing='ij',
-        ), axis=-1)
-        batch_indices = batch_indices[..., tf.newaxis, :]
+        batch_indices = tf.range(b, dtype=tf.int64)
+        batch_indices = tf.reshape(batch_indices, (-1, 1, 1, 1))
         batch_indices = tf.repeat(batch_indices, repeats=(positions.shape[2]), axis=2)
+        batch_indices = tf.repeat(batch_indices, repeats=s, axis=1)
 
         indices = tf.concat([batch_indices, positions], axis=-1)
 
         channel_indices = tf.broadcast_to(self.channel_indices, (b, s, indices.shape[2], 1))
         indices = tf.concat([indices, channel_indices], axis=-1)
-        indices = tf.reshape(indices, (-1, indices.shape[-1]))
+        indices = tf.transpose(indices, [1, 0, 2, 3])
 
-        if self.poca_nn:
-            features = tf.repeat(x, 5, axis=1)
-        else: features = x
-        features = tf.reshape(features, (-1,))
+        indices = tf.reshape(indices, (s, -1, indices.shape[-1]))
 
-        x = tf.sparse.SparseTensor(
-            indices=indices,
-            values=features,
-            dense_shape=(b, s, self.resolution, self.resolution, self.resolution, self.channels)
-        )
+        x = tf.transpose(x, [1, 0, 2])
+        features = tf.reshape(x, (s, -1))
 
-        x = tf.sparse.reduce_sum(x, axis=1) / tf.cast(s, tf.float32)
-        x.set_shape((x.shape[0], self.resolution, self.resolution, self.resolution, self.channels))
+        x = tf.scatter_nd(indices, features,
+                          shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
+        counts = tf.scatter_nd(indices, tf.ones_like(features),
+                               shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        return x
+        return tf.math.divide_no_nan(x, counts)
 
 
 class Agg3D(Model):
