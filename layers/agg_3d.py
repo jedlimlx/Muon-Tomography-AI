@@ -160,7 +160,7 @@ class Agg3D(Model):
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
         inputs = self.gaussian_noise(inputs)
-        positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.poca_nn) * self.resolution
+        positions = poca(*tf.split(inputs, 4, axis=-1), self.poca_nn) * self.resolution
         x = self.agg([positions, inputs])
 
         skip_outputs = []
