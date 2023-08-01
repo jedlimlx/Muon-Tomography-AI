@@ -40,7 +40,7 @@ class ScatterAndAvg3D(Layer):
         self.channel_indices = tf.repeat(self.channel_indices, point_size ** 3)[..., tf.newaxis]
 
         if projection_dim:
-            self.projection = MLP([projection_dim * 4, projection_dim], ['gelu', 'linear'])
+            self.projection = Dense(projection_dim, kernel_initializer='ones', bias_initializer='zeros')
 
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs
@@ -49,7 +49,7 @@ class ScatterAndAvg3D(Layer):
         if self.projection_dim:
             x = self.projection(x)
 
-        positions = positions
+        positions = positions * self.resolution
         positions = tf.cast(positions, tf.int64)[..., tf.newaxis, :]
         positions = tf.repeat(positions, repeats=self.point_size ** 3, axis=-2)
         positions = tf.clip_by_value(positions + self.offsets, 0, self.resolution - 1)
@@ -74,10 +74,10 @@ class ScatterAndAvg3D(Layer):
         x = tf.scatter_nd(indices, features,
                           shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        counts = tf.scatter_nd(indices, tf.ones_like(features),
-                               shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
+        # counts = tf.scatter_nd(indices, tf.ones_like(features),
+        #                        shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        return tf.math.divide_no_nan(x, counts)
+        return x / tf.cast(s, tf.float32)
 
 
 class Agg3D(Model):
@@ -181,6 +181,6 @@ class Agg3D(Model):
 
 
 if __name__ == "__main__":
-    test = Agg3D(**_3d_base_params)
-    print(test.predict(tf.random.uniform(shape=(2, 16384, 13))).shape)
-    test.summary()
+    test_scatter = ScatterAndAvg3D(64, 4, 3, 27 * 4)
+    inputs = [tf.random.uniform((8, 16384, 3)), tf.random.normal((8, 16384, 13))]
+    print(test_scatter(inputs)[0, 0, 0, ...])
