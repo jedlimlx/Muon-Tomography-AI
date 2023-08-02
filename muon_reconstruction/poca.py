@@ -98,11 +98,10 @@ def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, 
         scattering_angles * mask[..., 0]
     )
 
-    # find scattering density, using unbiased estimator of std
-    scattering_density = np.sum(np.square(scattering_voxels - np.sum(scattering_voxels, axis=1) / count), axis=1) / (count - 1)
+    radiation_length = np.sum(scattering_voxels, axis=1) ** 2 * resolution / 2 * np.mean(p_estimate) ** 2 / 13.6 ** 2
+    # np.sum(np.square(scattering_voxels - np.sum(scattering_voxels, axis=1) / count), axis=1) / (count - 1)
 
-    # find radiation length
-    return scattering_density  #scattering_density * np.mean(p_estimate) ** 2 / 13.6 ** 2
+    return radiation_length
 
 
 if __name__ == "__main__":
