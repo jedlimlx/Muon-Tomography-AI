@@ -98,9 +98,7 @@ def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, 
         scattering_angles * mask[..., 0]
     )
 
-    radiation_length = np.sum(scattering_voxels, axis=1) ** 2 * resolution / 2 * np.mean(p_estimate) ** 2 / 13.6 ** 2
-    # np.sum(np.square(scattering_voxels - np.sum(scattering_voxels, axis=1) / count), axis=1) / (count - 1)
-
+    radiation_length = np.sum(scattering_voxels, axis=1) ** 2 * resolution / 2 * (np.mean(p_estimate) ** 2 / 13.6 ** 2) / count # / 10**6
     return radiation_length
 
 
@@ -160,12 +158,12 @@ if __name__ == "__main__":
             .batch(1)
         )
 
-    ds = construct_ds(2000)
+    ds = construct_ds(10000)
 
     for x, y in ds: break
 
     x = x.numpy()
     print(x[:, :, -1])
 
-    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1], resolution=32, r=2)
+    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1], resolution=16, r=2)
     # print(output)
