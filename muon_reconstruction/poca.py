@@ -25,80 +25,103 @@ def poca_points(x, p, ver_x, ver_p):
 
 def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
     b = x.shape[0]
-    dosage = x.shape[1]
+    dosage = x.shape[1] // 256
 
-    coordinates = np.stack(np.meshgrid(
-        np.arange(resolution, dtype=np.int32),
-        np.arange(resolution, dtype=np.int32),
-        np.arange(resolution, dtype=np.int32),
+    coordinates = tf.stack(np.meshgrid(
+        tf.range(resolution, dtype=tf.int32),
+        tf.range(resolution, dtype=tf.int32),
+        tf.range(resolution, dtype=tf.int32),
     ), axis=-1) / resolution
-    coordinates = np.repeat(np.repeat(coordinates[np.newaxis, np.newaxis, ...], dosage, axis=1), b, axis=0)
+    coordinates = tf.repeat(tf.repeat(coordinates[tf.newaxis, tf.newaxis, ...], dosage, axis=1), b, axis=0)
+    coordinates = tf.cast(coordinates, tf.float32)
 
-    # constructing voxels
-    count = np.zeros((b, resolution, resolution, resolution))
+    def func(inputs):
+        inputs = tf.split(inputs, 4, axis=0)
+        x, p, ver_x, ver_p = inputs[0], inputs[1], inputs[2], inputs[3]
 
-    # run poca algorithm to find the scattering points
-    scattering, mask = poca_points(x, p, ver_x, ver_p)
+        # run poca algorithm to find the scattering points
+        scattering, mask = poca_points(x, p, ver_x, ver_p)
 
-    # expanding dimensions (memory going RIP)
-    ver_x_expanded = np.repeat(
-        np.repeat(
-            np.repeat(
-                ver_x[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
-            ), resolution, axis=3
-        ), resolution, axis=2
-    )
+        # constructing voxels
+        count = tf.zeros((b, resolution, resolution, resolution), dtype=tf.int32)
 
-    x_expanded = np.repeat(
-        np.repeat(
-            np.repeat(
-                x[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
-            ), resolution, axis=3
-        ), resolution, axis=2
-    )
+        # expanding dimensions (memory going RIP)
+        ver_x_expanded = tf.repeat(
+            tf.repeat(
+                tf.repeat(
+                    ver_x[:, :, tf.newaxis, tf.newaxis, tf.newaxis, ...], resolution, axis=4
+                ), resolution, axis=3
+            ), resolution, axis=2
+        )
 
-    scattering_expanded = np.repeat(
-        np.repeat(
-            np.repeat(
-                scattering[:, :, np.newaxis, np.newaxis, np.newaxis, ...], resolution, axis=4
-            ), resolution, axis=3
-        ), resolution, axis=2
-    )
+        x_expanded = tf.repeat(
+            tf.repeat(
+                tf.repeat(
+                    x[:, :, tf.newaxis, tf.newaxis, tf.newaxis, ...], resolution, axis=4
+                ), resolution, axis=3
+            ), resolution, axis=2
+        )
 
-    # considering first segment
-    distance1 = np.linalg.norm(
-        np.cross(coordinates - ver_x_expanded, scattering_expanded - ver_x_expanded, axis=-1), axis=-1
-    ) / np.linalg.norm(scattering - ver_x)
+        scattering_expanded = tf.repeat(
+            tf.repeat(
+                tf.repeat(
+                    scattering[:, :, tf.newaxis, tf.newaxis, tf.newaxis, ...], resolution, axis=4
+                ), resolution, axis=3
+            ), resolution, axis=2
+        )
 
-    # considering 2nd segment
-    distance2 = np.linalg.norm(
-        np.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded, axis=-1), axis=-1
-    ) / np.linalg.norm(x - scattering)
+        # considering first segment
+        distance1 = tf.norm(
+            tf.linalg.cross(coordinates - ver_x_expanded, scattering_expanded - ver_x_expanded), axis=-1
+        ) / tf.norm(scattering - ver_x)
 
-    # using bitwise OR prevents double counting
-    count += np.sum(
-        np.bitwise_or(
-            np.bitwise_and(
-                distance1 < (r / resolution)**2,
-                coordinates[..., -1] > scattering_expanded[..., -1]
+        # considering 2nd segment
+        distance2 = tf.norm(
+            tf.linalg.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded), axis=-1
+        ) / tf.norm(x - scattering)
+
+        # using bitwise OR prevents double counting
+        count += tf.math.reduce_sum(
+            tf.cast(
+                ((distance1 < (r / resolution)**2) & (coordinates[..., -1] > scattering_expanded[..., -1])) |
+                ((distance2 < (r / resolution)**2) & (coordinates[..., -1] < scattering_expanded[..., -1])), tf.int32
+            ), axis=1
+        )
+
+        # compute the list of scattering angles
+        scattering_angles = tf.math.acos(
+            tf.einsum("ijk,ijl->ij", scattering - ver_x, x - scattering) /
+            (tf.norm(scattering - ver_x) * tf.norm(x - scattering))
+        )
+        scattering_voxels = tf.einsum(
+            "bdxyz,bd->bdxyz",
+            tf.cast(
+                tf.math.reduce_sum(
+                    tf.square(coordinates - scattering_expanded), axis=-1
+                ) < (r / resolution)**2, tf.float32
             ),
-            np.bitwise_and(
-                distance2 < (r / resolution)**2,
-                coordinates[..., -1] < scattering_expanded[..., -1]
-            ),
-        ).astype(np.int32), axis=1
-    )
+            scattering_angles * mask[..., 0]
+        )
 
-    # compute the list of scattering angles
-    scattering_angles = np.arccos(np.einsum("ijk,ijl->ij", scattering - ver_x, x - scattering) /
-        (np.linalg.norm(scattering - ver_x) * np.linalg.norm(x - scattering)))
-    scattering_voxels = np.einsum(
-        "bdxyz,bd->bdxyz",
-        (np.sum(np.square(coordinates - scattering_expanded) < (r / resolution)**2, axis=-1) == 3).astype(np.int32),
-        scattering_angles * mask[..., 0]
-    )
+        return tf.concat([tf.math.reduce_sum(scattering_voxels, axis=1), tf.cast(count, tf.float32)], axis=0)
 
-    radiation_length = np.sum(scattering_voxels, axis=1) ** 2 * resolution / 2 * (np.mean(p_estimate) ** 2 / 13.6 ** 2) / count # / 10**6
+    x_split = tf.split(x, 256, axis=1)
+    p_split = tf.split(p, 256, axis=1)
+    ver_x_split = tf.split(ver_x, 256, axis=1)
+    ver_p_split = tf.split(ver_p, 256, axis=1)
+
+    # print(tf.concat([x_split, p_split, ver_x_split, ver_p_split], axis=1))
+
+    output = tf.map_fn(
+        func,
+        tf.concat([x_split, p_split, ver_x_split, ver_p_split], axis=1),
+        fn_output_signature=tf.float32
+    )
+    output = tf.split(output, 2, axis=1)
+    scattering_voxels, count = output[0], output[1]
+
+    radiation_length = tf.math.reduce_sum(scattering_voxels, axis=0) ** 2 * resolution / \
+                       2 * (tf.math.reduce_mean(p_estimate) ** 2 / 13.6 ** 2) / tf.math.reduce_sum(count, axis=0)
     return radiation_length
 
 
@@ -155,15 +178,18 @@ if __name__ == "__main__":
                     ], axis=1), tf.gather_nd(inverse_radiation_length, tf.cast(y[..., tf.newaxis], tf.int32))
                 )
             )
-            .batch(1)
+            .batch(8)
         )
 
-    ds = construct_ds(10000)
+    ds = construct_ds(16384)
 
     for x, y in ds: break
 
     x = x.numpy()
     print(x[:, :, -1])
 
-    output = poca_scattering_density(x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1], resolution=16, r=2)
+    output = poca_scattering_density(
+        x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1],
+        resolution=64, r=5
+    )
     # print(output)
