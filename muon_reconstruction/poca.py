@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import tensorflow as tf
 
@@ -23,7 +24,7 @@ def poca_points(x, p, ver_x, ver_p):
     return poca_points, scattered
 
 
-def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
+def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1, size=100.0):
     b = x.shape[0]
     dosage = x.shape[1] // 256
 
@@ -40,7 +41,7 @@ def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, 
         x, p, ver_x, ver_p = inputs[0], inputs[1], inputs[2], inputs[3]
 
         # run poca algorithm to find the scattering points
-        scattering, mask = poca_points(x, p, ver_x, ver_p)
+        scattering, mask = poca_points(x, p / tf.norm(p, axis=-1, keepdims=True), ver_x, ver_p)
 
         # constructing voxels
         count = tf.zeros((b, resolution, resolution, resolution), dtype=tf.int32)
@@ -90,27 +91,30 @@ def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, 
 
         # compute the list of scattering angles
         scattering_angles = tf.math.acos(
-            tf.einsum("ijk,ijl->ij", scattering - ver_x, x - scattering) /
-            (tf.norm(scattering - ver_x) * tf.norm(x - scattering))
+            tf.abs(tf.einsum("ijk,ijk->ij", scattering - ver_x, x - scattering)) /
+            (tf.norm(scattering - ver_x, axis=-1) * tf.norm(x - scattering, axis=-1))
         )
+
+        # some are nan idk why
+        value_not_nan = tf.dtypes.cast(tf.math.logical_not(tf.math.is_nan(scattering_angles)), dtype=tf.float32)
+        scattering_angles = tf.math.multiply_no_nan(scattering_angles, value_not_nan)
+
         scattering_voxels = tf.einsum(
             "bdxyz,bd->bdxyz",
             tf.cast(
                 tf.math.reduce_sum(
                     tf.square(coordinates - scattering_expanded), axis=-1
                 ) < (r / resolution)**2, tf.float32
-            ),
-            scattering_angles * mask[..., 0]
+            ) / (2 * tf.norm(scattering_expanded - ver_x_expanded, axis=-1) * size / resolution),
+            scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 13.6 ** 2)
         )
 
         return tf.concat([tf.math.reduce_sum(scattering_voxels, axis=1), tf.cast(count, tf.float32)], axis=0)
 
     x_split = tf.split(x, 256, axis=1)
-    p_split = tf.split(p, 256, axis=1)
+    p_split = tf.split(p * p_estimate[..., tf.newaxis], 256, axis=1)
     ver_x_split = tf.split(ver_x, 256, axis=1)
     ver_p_split = tf.split(ver_p, 256, axis=1)
-
-    # print(tf.concat([x_split, p_split, ver_x_split, ver_p_split], axis=1))
 
     output = tf.map_fn(
         func,
@@ -119,10 +123,7 @@ def poca_scattering_density(x, p, ver_x, ver_p, p_estimate=None, resolution=64, 
     )
     output = tf.split(output, 2, axis=1)
     scattering_voxels, count = output[0], output[1]
-
-    radiation_length = tf.math.reduce_sum(scattering_voxels, axis=0) ** 2 * resolution / \
-                       2 * (tf.math.reduce_mean(p_estimate) ** 2 / 13.6 ** 2) / tf.math.reduce_sum(count, axis=0)
-    return radiation_length
+    return tf.math.reduce_sum(scattering_voxels, axis=0) / dosage / 256
 
 
 if __name__ == "__main__":
@@ -159,7 +160,7 @@ if __name__ == "__main__":
         return x, y
 
 
-    def construct_ds(dosage, p_error=0.2):
+    def construct_ds(dosage, p_error=0.0):
         return (
             tf.data.TFRecordDataset("../voxels_prediction.tfrecord")
             .map(_parse_example)
@@ -178,7 +179,7 @@ if __name__ == "__main__":
                     ], axis=1), tf.gather_nd(inverse_radiation_length, tf.cast(y[..., tf.newaxis], tf.int32))
                 )
             )
-            .batch(8)
+            .batch(1)
         )
 
     ds = construct_ds(16384)
@@ -192,4 +193,5 @@ if __name__ == "__main__":
         x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1],
         resolution=64, r=5
     )
+    output = tf.transpose(output, (0, 2, 1, 3))
     # print(output)
