@@ -23,7 +23,7 @@ def poca(x, p, ver_x, ver_p, nn=None):
         ver_t = ver_t[..., tf.newaxis]
 
         poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
-        poca_points = poca_points * scattered  # + (x + ver_x) / 2 * not_scattered
+        poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
 
         return poca_points
     else:
