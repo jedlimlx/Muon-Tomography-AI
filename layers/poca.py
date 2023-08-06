@@ -15,7 +15,7 @@ def poca(x, p, ver_x, ver_p, nn=None):
 
         m_inv = tf.linalg.pinv(m)
         t = tf.linalg.matmul(m_inv, b[..., tf.newaxis])
-        scattered = (tf.linalg.det(m) > 1e-6) | (tf.linalg.det(m) < -1e-6)
+        scattered = (tf.linalg.det(m) > 2e-6) | (tf.linalg.det(m) < -2e-6)
         not_scattered = tf.cast(~scattered, tf.float32)[..., tf.newaxis]
         scattered = tf.cast(scattered, tf.float32)[..., tf.newaxis]
         t, ver_t, _ = tf.unstack(tf.squeeze(t, axis=-1), axis=-1)
@@ -23,7 +23,7 @@ def poca(x, p, ver_x, ver_p, nn=None):
         ver_t = ver_t[..., tf.newaxis]
 
         poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
-        poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
+        poca_points = poca_points * scattered  # + (x + ver_x) / 2 * not_scattered
 
         return poca_points
     else:
