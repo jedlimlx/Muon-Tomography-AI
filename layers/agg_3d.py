@@ -91,6 +91,7 @@ class Agg3D(Model):
             upward_filters=None,
             resolution=None,
             noise_level=0.05,
+            threshold=1e-8,
             poca_nn=None,
             *args, **kwargs
     ):
@@ -101,6 +102,7 @@ class Agg3D(Model):
         self.noise_level = noise_level
 
         self.poca_nn = poca_nn
+        self.threshold = threshold
 
         self.agg = ScatterAndAvg3D(
             resolution=resolution,
@@ -161,7 +163,7 @@ class Agg3D(Model):
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
         inputs = self.gaussian_noise(inputs)
-        positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.poca_nn)
+        positions = poca(*tf.split(inputs[..., :-1], 4, axis=-1), self.threshold, self.poca_nn)
         x = self.agg([positions, inputs])
 
         skip_outputs = []
