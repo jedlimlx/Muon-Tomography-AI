@@ -106,7 +106,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
                     tf.square(coordinates - scattering_expanded), axis=-1
                 ) < (r / resolution)**2, tf.float32
             ) / (2 * tf.norm(scattering_expanded - ver_x_expanded, axis=-1) * 100),
-            scattering_angles ** 2 * mask[..., 0] * (tf.math.reduce_mean(tf.norm(p, axis=-1)) ** 2 / 13.6 ** 2)
+            scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 13.6 ** 2)
         )
 
         return tf.concat([tf.math.reduce_sum(scattering_voxels, axis=1), tf.cast(count, tf.float32)], axis=0)
@@ -185,7 +185,7 @@ if __name__ == "__main__":
 
     ds = construct_ds(16384)
 
-    for x, y in ds: break
+    for x, y in ds.skip(4): break
 
     x = x.numpy()
     print(x[:, :, -1])
