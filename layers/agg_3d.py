@@ -3,9 +3,10 @@ import tensorflow as tf
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
-from layers.convnext_block import ConvNeXtBlock
 from layers.poca import poca
 from layers.agg_2d import MLP
+from layers.convnext_block import ConvNeXtBlock
+from layers.residual_block import ResidualBlock
 
 
 _3d_base_params = {
@@ -93,6 +94,7 @@ class Agg3D(Model):
             noise_level=0.05,
             threshold=1e-8,
             poca_nn=None,
+            use_residual=False,
             *args, **kwargs
     ):
         super(Agg3D, self).__init__(*args, **kwargs)
@@ -111,12 +113,15 @@ class Agg3D(Model):
             projection_dim=point_size ** 3 * downward_filters[0]
         )
 
+        if use_residual: conv = ResidualBlock
+        else: conv = ConvNeXtBlock
+
         # downward ConvNeXt blocks
         self.downward_convs = []
         for stage in range(len(downward_convs)):
             stack = []
             for c in range(downward_convs[stage]):
-                stack.append(ConvNeXtBlock(
+                stack.append(conv(
                     downward_filters[stage],
                     kernel_size=3,
                     dims=3,
@@ -148,7 +153,7 @@ class Agg3D(Model):
             # upward ConvNeXt blocks
             stack = []
             for c in range(upward_convs[stage]):
-                stack.append(ConvNeXtBlock(
+                stack.append(conv(
                     upward_filters[stage],
                     kernel_size=3,
                     dims=3,
@@ -184,6 +189,19 @@ class Agg3D(Model):
 
 
 if __name__ == "__main__":
-    test_scatter = ScatterAndAvg3D(64, 4, 3, 27 * 4)
-    inputs = [tf.random.uniform((8, 16384, 3)), tf.random.normal((8, 16384, 13))]
-    print(test_scatter(inputs)[0, 0, 0, ...])
+    model = Agg3D(
+        **{
+            'point_size': 3,
+            'downward_convs': [1, 1, 2, 3, 5],
+            'downward_filters': [8, 16, 64, 128, 256],
+            'upward_convs': [4, 3, 2, 1],
+            'upward_filters': [128, 64, 16, 8],
+            'resolution': 64,
+            'noise_level': 0,
+            'threshold': 1e-3,
+            'use_residual': True
+        }  # , poca_nn=poca_nn
+    )
+    print(model(tf.random.normal((8, 20000, 13))).shape)
+
+    model.summary()
