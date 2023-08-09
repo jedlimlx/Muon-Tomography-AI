@@ -72,20 +72,26 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
         )
 
         # considering first segment
-        distance1 = tf.norm(
-            tf.linalg.cross(coordinates - ver_x_expanded, scattering_expanded - ver_x_expanded), axis=-1
-        ) / tf.norm(scattering - ver_x)
+        distance1 = tf.einsum(
+            "bdxyz,bd->bdxyz",
+            tf.norm(
+                tf.linalg.cross(coordinates - ver_x_expanded, scattering_expanded - ver_x_expanded), axis=-1
+            ), 1 / tf.norm(scattering - ver_x, axis=-1)
+        )
 
         # considering 2nd segment
-        distance2 = tf.norm(
-            tf.linalg.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded), axis=-1
-        ) / tf.norm(x - scattering)
+        distance2 = tf.einsum(
+            "bdxyz,bd->bdxyz",
+            tf.norm(
+                tf.linalg.cross(coordinates - scattering_expanded, x_expanded - scattering_expanded), axis=-1
+            ), 1 / tf.norm(x - scattering, axis=-1)
+        )
 
         # using bitwise OR prevents double counting
         count += tf.math.reduce_sum(
             tf.cast(
-                ((distance1 < (r / resolution)**2) & (coordinates[..., -1] > scattering_expanded[..., -1])) |
-                ((distance2 < (r / resolution)**2) & (coordinates[..., -1] < scattering_expanded[..., -1])), tf.int32
+                ((distance1 < r / resolution) & (coordinates[..., -1] > scattering_expanded[..., -1])) |
+                ((distance2 < r / resolution) & (coordinates[..., -1] < scattering_expanded[..., -1])), tf.int32
             ), axis=1
         )
 
@@ -106,7 +112,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
                     tf.square(coordinates - scattering_expanded), axis=-1
                 ) < (r / resolution)**2, tf.float32
             ) / (2 * tf.norm(scattering_expanded - ver_x_expanded, axis=-1) * 100),
-            scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 13.6 ** 2)
+            scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 15 ** 2)
         )
 
         return tf.concat([tf.math.reduce_sum(scattering_voxels, axis=1), tf.cast(count, tf.float32)], axis=0)
@@ -124,7 +130,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1):
     output = tf.split(output, 2, axis=1)
     scattering_voxels, count = output[0], output[1]
 
-    return tf.math.reduce_sum(scattering_voxels, axis=0) / tf.math.reduce_sum(count, axis=0)
+    return tf.math.divide_no_nan(tf.math.reduce_sum(scattering_voxels, axis=0), tf.math.reduce_sum(count, axis=0)), count
 
 
 if __name__ == "__main__":
@@ -190,9 +196,9 @@ if __name__ == "__main__":
     x = x.numpy()
     print(x[:, :, -1])
 
-    output = poca(
+    output, count = poca(
         x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1],
-        resolution=64, r=6
+        resolution=64, r=5
     )
     output = tf.transpose(output, (0, 2, 1, 3))
     # print(output)
