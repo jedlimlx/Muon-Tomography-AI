@@ -28,7 +28,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1, r2=1):
     b = x.shape[0]
     dosage = x.shape[1] // 256
 
-    coordinates = tf.stack(np.meshgrid(
+    coordinates = tf.stack(tf.meshgrid(
         tf.range(resolution, dtype=tf.int32),
         tf.range(resolution, dtype=tf.int32),
         tf.range(resolution, dtype=tf.int32),
@@ -130,7 +130,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1, r2=1):
     output = tf.split(output, 2, axis=1)
     scattering_voxels, count = output[0], output[1]
 
-    return tf.math.divide_no_nan(tf.math.reduce_sum(scattering_voxels, axis=0), tf.math.reduce_sum(count, axis=0)), count
+    return tf.math.divide_no_nan(tf.math.reduce_sum(scattering_voxels, axis=0), tf.math.reduce_sum(count, axis=0))
 
 
 if __name__ == "__main__":
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     x = x.numpy()
     print(x[:, :, -1])
 
-    output, count = poca(
+    output = poca(
         x[:, :, :3], x[:, :, 3:6], x[:, :, 6:9], x[:, :, 9:12], x[:, :, -1],
         resolution=64, r=5, r2=2
     )
