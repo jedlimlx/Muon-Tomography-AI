@@ -1,4 +1,5 @@
 import tensorflow as tf
+from muon_reconstruction.poca import poca_points, poca
 
 
 def get_masks(delta_t):
@@ -24,29 +25,24 @@ def voxel_traversal(orig, dirn, t_end, resolution=16):
 
     unit_step = tf.sign(dirn)
     unit_step_int = tf.cast(unit_step, tf.int32)
+    unit_step_relu = tf.nn.relu(unit_step)
+    end = orig + t_end * dirn
 
     cont = t < t_end
     counter = 0
-    print(t_end)
-    # print(max_steps)
     while tf.reduce_any(cont):
-        next_voxel_boundary = (tf.cast(current_voxel, tf.float32) + tf.nn.relu(unit_step)) / resolution
-
+        next_voxel_boundary = (tf.cast(current_voxel, tf.float32) + unit_step_relu) / resolution
         delta_t = (next_voxel_boundary - current_position) / dirn
 
         mask_int, mask_float = get_masks(delta_t)
         cont = tf.logical_and(t < t_end, cont)
-        print(t)
-        print(current_position * resolution)
-        t += tf.reduce_min(delta_t, axis=-1)
+        t = tf.minimum(t_end, t + tf.reduce_min(delta_t, axis=-1))
 
         exit_point = orig + dirn * t[..., tf.newaxis]
-        path_length = tf.math.reduce_euclidean_norm(exit_point - orig, axis=-1)
+        # exit_point = tf.where((t < t_end)[..., tf.newaxis], orig + dirn * t[..., tf.newaxis], end)
+        path_length = tf.math.reduce_euclidean_norm(exit_point - current_position, axis=-1)
         current_position = exit_point
 
-        print(current_voxel)
-        print(cont)
-        print(counter)
         current_voxel = tf.where(cont[..., tf.newaxis], current_voxel, -1)
 
         visited_voxels = visited_voxels.write(counter, current_voxel)
@@ -66,8 +62,88 @@ def voxel_traversal(orig, dirn, t_end, resolution=16):
     return visited_voxels, exit_points, path_lengths
 
 
-def expectation_maximization(x, ver_x, p, ver_p, p_est, resolution=64, its=5):
-    b, s, _ = x.shape
+def expectation_maximization(x, p, ver_x, ver_p, p_est, p_0=13.6, angle_error=0., position_error=0., resolution=64, its=5, **poca_params):
+    z_end = tf.math.reduce_mean(x[..., -1])
+    z_start = tf.math.reduce_mean(x[..., -1])
+
+    t_int = (z_end - z_start) / ver_p[..., -1]
+
+    x0 = z_start + t_int[..., tf.newaxis] * (z_end - z_start)
+    dx = tf.math.reduce_euclidean_norm(x - x0, axis=-1)
+
+    dtheta = tf.math.acos(tf.clip_by_value(tf.reduce_sum(p * ver_p, axis=-1), -1., 1.))
+
+    data = tf.stack([dx, dtheta], axis=-1)[..., tf.newaxis, :, tf.newaxis]  # D vector
+
+    poca_point, _ = poca_points(x, p, ver_x, ver_p)
+    dirn_1 = poca_point - ver_x
+    dirn_1 = dirn_1 / tf.math.reduce_euclidean_norm(dirn_1, axis=-1, keepdims=True)
+
+    indices_1, exit_points_1, path_lengths_1 = voxel_traversal(x, dirn_1, 1., resolution=resolution)
+
+    dirn_2 = x - poca_point
+    dirn_2 = dirn_2 / tf.math.reduce_euclidean_norm(dirn_2, axis=-1, keepdims=True)
+    indices_2, exit_points_2, path_lengths_2 = voxel_traversal(poca_point, dirn_2, 1., resolution=resolution)
+
+    poca_voxel = tf.cast(tf.floor(poca_point * resolution), tf.int32)
+    poca_mask = tf.cast(tf.reduce_all(indices_1 == poca_voxel[..., tf.newaxis, :], axis=-1), tf.float32)
+    poca_l2 = path_lengths_1[..., :1]
+    path_lengths_1 += poca_mask * poca_l2
+
+    exit_points_1 += (exit_points_2[..., :1, :] - poca_point[..., tf.newaxis, :]) * poca_mask[..., tf.newaxis]
+    remaining_path_lengths_1 = (tf.math.reduce_euclidean_norm(poca_point[..., tf.newaxis, :] - exit_points_1, axis=-1) +
+                                tf.math.reduce_euclidean_norm(x - poca_point, axis=-1)[..., tf.newaxis])
+    remaining_path_lengths_2 = tf.math.reduce_euclidean_norm(x[..., tf.newaxis, :] - exit_points_2, axis=-1)
+
+    voxel_indices = tf.concat([indices_1, indices_2[..., 1:, :]], axis=-2)
+    path_lengths = tf.concat([path_lengths_1, path_lengths_2[..., 1:]], axis=-1)  # L
+    # exit_points = tf.concat([exit_points_1, exit_points_2[..., 1:, :]], axis=-2)
+    remaining_path_lengths = tf.concat([remaining_path_lengths_1, remaining_path_lengths_2[..., 1:]], axis=-1)  # T
+
+    weights = tf.stack([
+        tf.stack([
+            path_lengths,
+            path_lengths ** 2 / 2 + path_lengths * remaining_path_lengths
+        ], axis=-1),
+        tf.stack([
+            path_lengths ** 2 / 2 + path_lengths * remaining_path_lengths,
+            path_lengths ** 3 / 3 + path_lengths ** 2 * remaining_path_lengths + path_lengths * remaining_path_lengths ** 2
+        ], axis=-1)
+    ], axis=-2)  # W matrix
+
+    # stuff for scatter_nd
+    batch_indices = tf.range(x.shape[0], dtype=tf.int32)
+    batch_indices = tf.reshape(batch_indices, (-1, 1, 1, 1))
+    batch_indices = tf.repeat(batch_indices, axis=1, repeats=voxel_indices.shape[1])
+    batch_indices = tf.repeat(batch_indices, axis=2, repeats=voxel_indices.shape[2])
+    scatter_indices = tf.concat([batch_indices, voxel_indices], axis=-1)
+
+    scattering_density_voxels = poca(x, p, ver_x, ver_p, p_est, resolution=resolution, **poca_params)
+    scattering_density_voxels = tf.transpose(scattering_density_voxels, [0, 2, 1, 3])
+#     print("test")
+    scattering_density = scattering_density_voxels
+    p_rel = (p_est / p_0)[..., tf.newaxis]
+    error = tf.convert_to_tensor([
+            [angle_error * angle_error, angle_error * position_error],
+            [angle_error * position_error, position_error * position_error]
+        ], dtype=x.dtype)  # E matrix
+    intersect = tf.cast(tf.reduce_all(voxel_indices != -1, axis=-1), tf.float32)
+    ray_count = tf.reduce_sum(intersect, axis=-2, keepdims=True)
+    for i in range(its):
+        print(i)
+        scattering_density = tf.gather_nd(params=scattering_density, indices=voxel_indices, batch_dims=1)
+        cov = error + p_rel[..., tf.newaxis, tf.newaxis] ** 2 * tf.reduce_sum(scattering_density[..., tf.newaxis, tf.newaxis] * weights, axis=-3, keepdims=True)
+        cov_inverse = tf.linalg.pinv(cov)
+        conditional_expectation = tf.linalg.matrix_transpose(data) @ cov_inverse @ weights @ cov_inverse @ data
+        conditional_expectation = tf.squeeze(conditional_expectation, [-1, -2])
+        conditional_expectation = 2 * scattering_density + (conditional_expectation - tf.linalg.trace(cov_inverse @ weights)) * p_rel ** 2 * scattering_density ** 2
+        conditional_expectation = conditional_expectation * intersect
+
+        scattering_density = conditional_expectation / (2 * ray_count)
+        scattering_density = tf.scatter_nd(indices=scatter_indices, updates=scattering_density, shape=(x.shape[0], resolution, resolution, resolution))
+
+    has_intersection = tf.scatter_nd(indices=scatter_indices, updates=tf.ones_like(path_lengths), shape=(x.shape[0], resolution, resolution, resolution)) != 0.
+    return tf.where(has_intersection, scattering_density, scattering_density_voxels)
 
 
 if __name__ == '__main__':
