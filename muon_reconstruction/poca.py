@@ -169,7 +169,7 @@ if __name__ == "__main__":
 
     def construct_ds(dosage, p_error=0.2):
         return (
-            tf.data.TFRecordDataset("../voxels_prediction.tfrecord")
+            tf.data.TFRecordDataset("../voxels_prediction_funny.tfrecord")
             .map(_parse_example)
             .filter(lambda x, y: len(x) >= dosage)
             .map(lambda x, y: set_dosage(x, y, dosage))
@@ -191,7 +191,7 @@ if __name__ == "__main__":
 
     ds = construct_ds(16384)
 
-    for x, y in ds.skip(2): break
+    for x, y in ds.skip(1): break
 
     x = x.numpy()
     print(x[:, :, -1])

@@ -1,5 +1,7 @@
+import os
+import cv2
 import numpy as np
-
+import tensorflow as tf
 
 # generates hollow shapes with a high-Z object (cube) inside (nuclear non-proliferation)
 def high_z_detection(
@@ -32,8 +34,6 @@ def high_z_detection(
         obj_y = int(np.random.uniform(low=y_min+t+l, high=y_max-t-l))
         obj_z = int(np.random.uniform(low=z_min+t+l, high=z_max-t-l))
 
-        print(obj_x, obj_y, obj_z)
-
         voxels[obj_x-l:obj_x+l, obj_y-l:obj_y+l, obj_z-l:obj_z+l] = high_z_mat
 
     return voxels
@@ -51,7 +51,7 @@ def hidden_chamber(bg_mat=1, num_holes=5, resolution=64):
         obj_y = int(np.random.uniform(low=pad, high=resolution-2*pad))
         obj_z = int(np.random.uniform(low=pad, high=resolution-2*pad))
 
-        volume = np.random.uniform(0, (resolution / 4) ** 3)
+        volume = np.random.uniform(4, (resolution / 4) ** 3)
         w = int(np.cbrt(volume) * 2 ** np.random.normal(loc=0, scale=0.5))
         h = int(volume / np.cbrt(volume) / w * 2 ** np.random.normal(loc=0, scale=0.5))
         b = int(volume / w / h)
@@ -61,8 +61,48 @@ def hidden_chamber(bg_mat=1, num_holes=5, resolution=64):
     return voxels
 
 
+def read_crosssections(path):
+    lst = os.listdir(path)
+    lst = [(int(x[-6:-4]), path + "/" + x) for x in lst]
+    lst = sorted(lst, key=lambda x: x[0])
+
+    voxels = []
+    for img in lst:
+        voxels.append(tf.image.resize(tf.io.decode_image(tf.io.read_file(img[1]))[..., 0:1], (64, 64)).numpy()[..., 0])
+
+    return np.array(voxels)
+
+
 if __name__ == "__main__":
     import os
+    import random
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-    voxels = hidden_chamber()
+    # voxels = read_crosssections("../crosssections")
+
+    i = 0
+    while i < 2400:
+        try:
+            np.save(
+                f"../to_simulate/run_{i}.npy",
+
+                hidden_chamber(
+                    bg_mat=random.randint(4, 6),
+                    num_holes=random.randint(1, 5),
+                    resolution=64
+                )
+            )
+        except ZeroDivisionError:
+            continue
+
+        i += 1
+
+    """
+    high_z_detection(
+        shielding_mat=random.randint(1, 4),
+        shielding_thickness=random.randint(2, 5)/64,
+        high_z_mat=random.randint(9, 10),
+        high_z_num=random.randint(0, 5),
+        high_z_radius=random.uniform(0.03, 0.08)
+    )
+    """

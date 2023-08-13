@@ -33,7 +33,7 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(1128):
+    for i in tqdm.trange(2400, 2403):
         x = read_muons_data(f"{root}/output/run_{i}.csv")
         y = read_voxels_data(f"{root}/voxels/run_{i}.npy")
 
@@ -44,6 +44,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = f'../voxels_prediction_test.tfrecord'
+filename = f'../voxels_prediction_funny.tfrecord'
 writer = tf.data.experimental.TFRecordWriter(filename)
 writer.write(serialized_features_dataset)
