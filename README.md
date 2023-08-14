@@ -1,5 +1,7 @@
 # $\mu$-Net: ConvNeXt-Based U-Nets for Muon Tomography
 
+![mu_net_part_1.png](mu_net_part_1.png)
+
 Muon scattering tomography is an imaging technique that utilizes muons, typically originating from cosmic rays to 
 image the interiors of objects. Since muons are highly penetrating, muon tomography can be used to investigate the 
 internal composition of dense materials such as geological formations or archaeological structures. 
@@ -14,7 +16,8 @@ expectation maximisation algorithm. Furthermore, we find that our method is robu
 inaccuracies in the muon momentum or a limited detector resolution. We hope that this research will spark further 
 investigations into the potential of deep learning to revolutionise this field. 
 
-Our dataset can be found https://www.kaggle.com/datasets/tomandjerry2005/muons-scattering-dataset.
+Our dataset can be found https://www.kaggle.com/datasets/tomandjerry2005/muons-scattering-dataset. 
+The code for data generation can be found at https://github.com/jedlimlx/Muons-Data-Generation.
 
 The weights of the best performing models of each dosage at released under GitHub Releases. To load the model, run
 ```python
@@ -34,3 +37,9 @@ model = Agg3D(
 )
 model.load_weights("path-to-weights.h5")
 ```
+
+Some sample reconstructions from our model can be found below.
+
+![img.png](img.png)
+
+(left) ground truth, (middle) $\mu$_net, (right) point of closest approach
