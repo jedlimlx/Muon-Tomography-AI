@@ -1,4 +1,4 @@
-# \mu-Net: ConvNeXt-Based U-Nets for Muon Tomography
+# $\mu$-Net: ConvNeXt-Based U-Nets for Muon Tomography
 
 Muon scattering tomography is an imaging technique that utilizes muons, typically originating from cosmic rays to 
 image the interiors of objects. Since muons are highly penetrating, muon tomography can be used to investigate the 
