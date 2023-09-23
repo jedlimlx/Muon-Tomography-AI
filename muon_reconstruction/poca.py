@@ -19,7 +19,7 @@ def poca_points(x, p, ver_x, ver_p):
     ver_t = ver_t[..., tf.newaxis]
 
     poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
-    # poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
+    poca_points = poca_points * scattered + (x + ver_x) / 2 * not_scattered
 
     return poca_points, scattered
 
@@ -107,12 +107,13 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1, r2=1):
 
         scattering_voxels = tf.einsum(
             "bdxyz,bd->bdxyz",
-            tf.cast(
-                tf.math.reduce_sum(
-                    tf.square(coordinates - scattering_expanded), axis=-1
-                ) < (r / resolution)**2, tf.float32
-            ) / (2 * tf.norm(scattering_expanded - ver_x_expanded, axis=-1) * 100),
-            scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 13.8 ** 2)
+            tf.math.divide_no_nan(
+                tf.cast(
+                    tf.math.reduce_sum(
+                        tf.square(coordinates - scattering_expanded), axis=-1
+                    ) < (r / resolution)**2, tf.float32
+                ), (2 * tf.norm(scattering_expanded - ver_x_expanded, axis=-1) * 100)
+            ), scattering_angles ** 2 * mask[..., 0] * (tf.norm(p, axis=-1) ** 2 / 13.8 ** 2)
         )
 
         return tf.concat([tf.math.reduce_sum(scattering_voxels, axis=1), tf.cast(count, tf.float32)], axis=0)
@@ -169,7 +170,7 @@ if __name__ == "__main__":
 
     def construct_ds(dosage, p_error=0.2):
         return (
-            tf.data.TFRecordDataset("../voxels_prediction.tfrecord")
+            tf.data.TFRecordDataset("../voxels_prediction_funny.tfrecord")
             .map(_parse_example)
             .filter(lambda x, y: len(x) >= dosage)
             .map(lambda x, y: set_dosage(x, y, dosage))
@@ -191,7 +192,7 @@ if __name__ == "__main__":
 
     ds = construct_ds(16384)
 
-    for x, y in ds.skip(2): break
+    for x, y in ds.skip(1): break
 
     x = x.numpy()
     print(x[:, :, -1])
