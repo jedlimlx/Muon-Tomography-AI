@@ -23,7 +23,9 @@ def poca(x, p, ver_x, ver_p, threshold=1e-8, nn=None):
         ver_t = ver_t[..., tf.newaxis]
 
         poca_points = (x + p * t + ver_x + ver_t * ver_p) / 2
-        poca_points = poca_points * scattered  # + (x + ver_x) / 2 * not_scattered
+
+        k = tf.random.uniform(shape=scattered.shape[:-1], minval=0, maxval=1)
+        poca_points = poca_points * scattered + (x + (1 - k) * ver_x) * not_scattered
 
         return poca_points
     else:
