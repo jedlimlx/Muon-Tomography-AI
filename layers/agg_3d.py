@@ -41,7 +41,8 @@ class ScatterAndAvg3D(Layer):
         self.channel_indices = tf.repeat(self.channel_indices, point_size ** 3)[..., tf.newaxis]
 
         if projection_dim:
-            self.projection = MLP([projection_dim * 4, projection_dim], ['gelu', 'linear'],
+            self.projection = MLP([projection_dim * 8, projection_dim * 8, projection_dim],
+                                  ['gelu', 'gelu', 'linear'],
                                   name=f'{self.name}/projection')
 
     def call(self, inputs, *args, **kwargs):
