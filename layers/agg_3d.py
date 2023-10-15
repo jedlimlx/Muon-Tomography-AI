@@ -41,16 +41,30 @@ class ScatterAndAvg3D(Layer):
         self.channel_indices = tf.repeat(self.channel_indices, point_size ** 3)[..., tf.newaxis]
 
         if projection_dim:
-            self.projection = MLP([projection_dim * 8, projection_dim * 8, projection_dim],
-                                  ['gelu', 'gelu', 'linear'],
-                                  name=f'{self.name}/projection')
+            self.projection = [
+                MLP(
+                    [projection_dim * 8, projection_dim * 4],
+
+                    ['gelu', 'linear'],
+                    name=f'{self.name}/projection_{x}'
+                ) for x in range(2)
+            ]
+
+            self.final_projection = Dense(projection_dim, name=f'out_projection')
 
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs
         b = tf.shape(x)[0]
         s = tf.shape(x)[1] * (1 if not self.poca_nn else 5)
+
         if self.projection_dim:
-            x = self.projection(x)
+            for i in range(len(self.projection)):
+                x = self.projection[i](x)
+
+                feature_vector = tf.math.reduce_mean(x, axis=1, keepdims=True)
+                x = tf.concat([x, x * 0 + feature_vector], axis=-1)
+
+            x = self.final_projection(x)
 
         positions = positions * self.resolution
         positions = tf.cast(positions, tf.int64)[..., tf.newaxis, :]
