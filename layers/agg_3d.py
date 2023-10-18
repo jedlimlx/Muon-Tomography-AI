@@ -20,7 +20,7 @@ _3d_base_params = {
 
 
 class ScatterAndAvg3D(Layer):
-    def __init__(self, resolution, channels, point_size=3, projection_dim=None, poca_nn=False, **kwargs):
+    def __init__(self, resolution, channels, point_size=3, projection_dim=None, poca_nn=False, use_lstm=False, **kwargs):
         super().__init__(**kwargs)
         self.resolution = resolution
         self.point_size = point_size
@@ -28,6 +28,7 @@ class ScatterAndAvg3D(Layer):
         self.channels = channels
 
         self.poca_nn = poca_nn
+        self.use_lstm = use_lstm
 
         self.offsets = tf.stack(tf.meshgrid(
             tf.range(point_size, dtype=tf.int64),
@@ -57,7 +58,8 @@ class ScatterAndAvg3D(Layer):
 
         if self.projection_dim:
             x = self.projection(x)
-            x = self.lstm(x)
+            if self.use_lstm:
+                x = self.lstm(x)
             x = self.final_projection(x)
 
         positions = positions * self.resolution
@@ -100,9 +102,9 @@ class Agg3D(Model):
             upward_convs=None,
             upward_filters=None,
             resolution=None,
-            noise_level=0.05,
             threshold=1e-8,
             poca_nn=None,
+            use_lstm=False,
             use_residual=False,
             *args, **kwargs
     ):
@@ -110,16 +112,17 @@ class Agg3D(Model):
         self.resolution = resolution
         self.point_size = point_size
         self.downward_filters = downward_filters
-        self.noise_level = noise_level
 
         self.poca_nn = poca_nn
+        self.use_lstm = use_lstm
         self.threshold = threshold
 
         self.agg = ScatterAndAvg3D(
             resolution=resolution,
             channels=downward_filters[0],
             point_size=point_size,
-            projection_dim=point_size ** 3 * downward_filters[0]
+            projection_dim=point_size ** 3 * downward_filters[0],
+            use_lstm=use_lstm
         )
 
         if use_residual: conv = ResidualBlock
@@ -172,11 +175,8 @@ class Agg3D(Model):
 
         self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
 
-        self.gaussian_noise = GaussianNoise(self.noise_level)
-
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
-        inputs = self.gaussian_noise(inputs)
         positions = poca(*tf.split(inputs[..., :12], 4, axis=-1), self.threshold, self.poca_nn)
         x = self.agg([positions, inputs])
 
@@ -206,9 +206,9 @@ if __name__ == "__main__":
             'upward_convs': [4, 3, 2, 1],
             'upward_filters': [128, 64, 16, 8],
             'resolution': 64,
-            'noise_level': 0,
             'threshold': 1e-3,
-            'use_residual': True
+            'use_residual': True,
+            'use_lstm': False
         }  # , poca_nn=poca_nn
     )
     print(model(tf.random.normal((8, 20000, 13))).shape)
