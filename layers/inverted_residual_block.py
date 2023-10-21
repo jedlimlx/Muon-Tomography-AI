@@ -1,7 +1,5 @@
 import tensorflow as tf
 
-from layers import Triplane
-
 from keras_core.layers import *
 
 
