@@ -10,7 +10,8 @@ from layers.residual_block import ResidualBlock
 
 
 class ScatterAndAvg3D(Layer):
-    def __init__(self, resolution, channels, point_size=3, projection_dim=None, poca_nn=False, use_lstm=False, **kwargs):
+    def __init__(self, resolution, channels, hidden_layers=(8, 4),
+                 point_size=3, projection_dim=None, poca_nn=False, use_lstm=False, **kwargs):
         super().__init__(**kwargs)
         self.resolution = resolution
         self.point_size = point_size
@@ -19,6 +20,8 @@ class ScatterAndAvg3D(Layer):
 
         self.poca_nn = poca_nn
         self.use_lstm = use_lstm
+
+        self.hidden_layers = hidden_layers
 
         self.offsets = tf.stack(tf.meshgrid(
             tf.range(point_size, dtype=tf.int64),
@@ -33,8 +36,8 @@ class ScatterAndAvg3D(Layer):
 
         if projection_dim:
             self.projection = MLP(
-                [projection_dim * 8, projection_dim * 4],
-                ['gelu', 'linear'],
+                [projection_dim * k for k in hidden_layers],
+                ['gelu', 'gelu'],
                 name=f'{self.name}/projection'
             )
 

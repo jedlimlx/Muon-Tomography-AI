@@ -30,6 +30,7 @@ class Agg3D(Model):
             resolution=None,
             threshold=1e-8,
             poca_nn=None,
+            hidden_layers=(8, 4),
             use_lstm=False,
             use_residual=False,
             *args, **kwargs
@@ -43,11 +44,14 @@ class Agg3D(Model):
         self.use_lstm = use_lstm
         self.threshold = threshold
 
+        self.hidden_layers = hidden_layers
+
         self.agg = ScatterAndAvg3D(
             resolution=resolution,
             channels=downward_filters[0],
             point_size=point_size,
             projection_dim=point_size ** 3 * downward_filters[0],
+            hidden_layers=hidden_layers,
             use_lstm=use_lstm
         )
 
@@ -133,6 +137,7 @@ if __name__ == "__main__":
             'upward_filters': [128, 64, 16, 8],
             'resolution': 64,
             'threshold': 1e-3,
+            'hidden_layers': [8, 4],
             'use_residual': True,
             'use_lstm': False
         }  # , poca_nn=poca_nn
