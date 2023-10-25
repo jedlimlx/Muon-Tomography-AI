@@ -36,7 +36,7 @@ def random_rotate(muons, voxels):
                 muons[..., 9:11][::-1],
                 muons[..., 11:12],
                 muons[..., 12:],
-            ], axis=1
+            ], axis=-1
         )
 
     return muons, voxels
