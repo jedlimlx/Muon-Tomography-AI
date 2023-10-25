@@ -27,13 +27,13 @@ def random_rotate(muons, voxels):
         voxels = tf.transpose(voxels, (0, 2, 1, 3, 4))
         muons = tf.concat(
             [
-                muons[:2][::-1],
-                muons[2:3],
-                muons[3:6],
-                muons[6:8][::-1],
-                muons[8:9],
-                muons[9:12],
-                muons[12:],
+                muons[..., :2][::-1],
+                muons[..., 2:3],
+                muons[..., 3:6],
+                muons[..., 6:8][::-1],
+                muons[..., 8:9],
+                muons[..., 9:12],
+                muons[..., 12:],
             ], axis=1
         )
 
