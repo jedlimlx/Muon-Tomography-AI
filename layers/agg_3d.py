@@ -83,4 +83,4 @@ class ScatterAndAvg3D(Layer):
         counts = tf.scatter_nd(indices, tf.ones_like(features),
                                shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        return tf.math.divide_no_nan(x, counts)
+        return tf.concat([x, counts[..., 0:1]], axis=-1)  # tf.math.divide_no_nan(x, counts)
