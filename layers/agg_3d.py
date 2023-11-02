@@ -44,6 +44,8 @@ class ScatterAndAvg3D(Layer):
             self.lstm = Bidirectional(LSTM(projection_dim * 4, return_sequences=True))
             self.final_projection = Dense(projection_dim, name=f'out_projection')
 
+        self.pointwise_conv = Dense(projection_dim)
+
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs
         b = tf.shape(x)[0]
@@ -83,4 +85,4 @@ class ScatterAndAvg3D(Layer):
         counts = tf.scatter_nd(indices, tf.ones_like(features),
                                shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        return tf.concat([x, counts[..., 0:1]], axis=-1)  # tf.math.divide_no_nan(x, counts)
+        return self.pointwise_conv(tf.concat([x, counts[..., 0:1]], axis=-1))  # tf.math.divide_no_nan(x, counts)
