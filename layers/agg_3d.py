@@ -44,7 +44,7 @@ class ScatterAndAvg3D(Layer):
             self.lstm = Bidirectional(LSTM(projection_dim * 4, return_sequences=True))
             self.final_projection = Dense(projection_dim, name=f'out_projection')
 
-        self.pointwise_conv = Dense(projection_dim)
+        self.pointwise_conv = Dense(projection_dim // point_size ** 3)
 
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs
