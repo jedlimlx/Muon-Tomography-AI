@@ -7,3 +7,4 @@ from layers.attention import SqueezeAndExcite2D, SqueezeAndExcite3D, SpatialAtte
 from layers.kmeans import KMeans
 from layers.agg_2d import Agg2D
 from layers.knn import KNN
+from layers.agg_3d import ScatterAndAvg3D
