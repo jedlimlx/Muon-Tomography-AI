@@ -48,7 +48,7 @@ class Agg3D(Model):
 
         self.hidden_layers = hidden_layers
 
-        if use_gaussian:
+        if not use_gaussian:
             self.agg = ScatterAndAvg3D(
                 resolution=resolution,
                 channels=downward_filters[0],
@@ -64,7 +64,7 @@ class Agg3D(Model):
                 point_size=point_size,
                 projection_dim=downward_filters[0],
                 hidden_layers=hidden_layers,
-                use_lstm=use_lstm,
+                use_lstm=use_lstm
             )
 
         if use_residual: conv = ResidualBlock
