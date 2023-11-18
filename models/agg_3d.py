@@ -5,6 +5,7 @@ from tensorflow.keras.models import *
 
 from layers.poca import poca
 from layers.agg_3d import ScatterAndAvg3D
+from layers.gaussian_agg3d import GaussianScatterAndAvg3D
 from layers.convnext_block import ConvNeXtBlock
 from layers.residual_block import ResidualBlock
 
@@ -33,6 +34,7 @@ class Agg3D(Model):
             hidden_layers=(8, 4),
             use_lstm=False,
             use_residual=False,
+            use_gaussian=False,
             *args, **kwargs
     ):
         super(Agg3D, self).__init__(*args, **kwargs)
@@ -46,14 +48,24 @@ class Agg3D(Model):
 
         self.hidden_layers = hidden_layers
 
-        self.agg = ScatterAndAvg3D(
-            resolution=resolution,
-            channels=downward_filters[0],
-            point_size=point_size,
-            projection_dim=point_size ** 3 * downward_filters[0],
-            hidden_layers=hidden_layers,
-            use_lstm=use_lstm
-        )
+        if use_gaussian:
+            self.agg = ScatterAndAvg3D(
+                resolution=resolution,
+                channels=downward_filters[0],
+                point_size=point_size,
+                projection_dim=point_size ** 3 * downward_filters[0],
+                hidden_layers=hidden_layers,
+                use_lstm=use_lstm
+            )
+        else:
+            self.agg = GaussianScatterAndAvg3D(
+                resolution=resolution,
+                channels=downward_filters[0],
+                point_size=point_size,
+                projection_dim=downward_filters[0],
+                hidden_layers=hidden_layers,
+                use_lstm=use_lstm,
+            )
 
         if use_residual: conv = ResidualBlock
         else: conv = ConvNeXtBlock
@@ -139,7 +151,8 @@ if __name__ == "__main__":
             'threshold': 1e-3,
             'hidden_layers': [8, 4],
             'use_residual': True,
-            'use_lstm': False
+            'use_lstm': False,
+            # 'use_gaussian': False
         }  # , poca_nn=poca_nn
     )
     print(model(tf.random.normal((8, 20000, 13))).shape)

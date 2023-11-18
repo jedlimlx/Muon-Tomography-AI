@@ -56,7 +56,7 @@ class GaussianScatterAndAvg3D(Layer):
                 x = self.lstm(x)
             x = self.final_projection(x)
 
-        corrections = 0  # self.poca_correction(x)
+        corrections = self.poca_correction(x)
         positions = positions + corrections
 
         positions = positions * self.resolution
