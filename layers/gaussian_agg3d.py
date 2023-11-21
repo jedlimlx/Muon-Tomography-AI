@@ -7,7 +7,8 @@ from layers.agg_2d import MLP
 
 class GaussianScatterAndAvg3D(Layer):
     def __init__(self, resolution, channels, hidden_layers=(8, 4),
-                 point_size=5, projection_dim=None, use_lstm=False, std=0.6/64, **kwargs):
+                 point_size=5, projection_dim=None, use_lstm=False, std=1/64,
+                 correction_magnitude=5/64, **kwargs):
         super().__init__(**kwargs)
         self.resolution = resolution
         self.point_size = point_size
@@ -15,6 +16,7 @@ class GaussianScatterAndAvg3D(Layer):
         self.channels = channels
 
         self.std = std
+        self.correction_magnitude = correction_magnitude
 
         # self.poca_nn = poca_nn
         self.use_lstm = use_lstm
@@ -56,7 +58,7 @@ class GaussianScatterAndAvg3D(Layer):
                 x = self.lstm(x)
             x = self.final_projection(x)
 
-        corrections = 0.1 * self.poca_correction(x)
+        corrections = self.correction_magnitude * self.poca_correction(x)
         positions = positions + corrections
 
         positions = positions * self.resolution
