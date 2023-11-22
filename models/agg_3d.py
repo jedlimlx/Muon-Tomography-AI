@@ -64,7 +64,8 @@ class Agg3D(Model):
                 point_size=point_size,
                 projection_dim=downward_filters[0],
                 hidden_layers=hidden_layers,
-                use_lstm=use_lstm
+                use_lstm=use_lstm,
+                correction_magnitude=use_gaussian
             )
 
         if use_residual: conv = ResidualBlock
