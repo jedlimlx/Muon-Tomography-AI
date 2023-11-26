@@ -5,7 +5,7 @@ import tensorflow as tf
 def random_flip(muons, voxels, extra_length=2):
     horizontal = random.randint(0, 1)
     if horizontal:
-        voxels = voxels[:, ::-1, :, :]
+        voxels = voxels[:, :, ::-1, :]
         muons = (
                 tf.constant([-1, 1, 1, -1, 1, 1, -1, 1, 1, -1, 1, 1] + [1] * extra_length, dtype=tf.float32) * muons +
                 tf.constant([1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0] + [0] * extra_length, dtype=tf.float32)
@@ -13,7 +13,7 @@ def random_flip(muons, voxels, extra_length=2):
 
     vertical = random.randint(0, 1)
     if vertical:
-        voxels = voxels[:, :, ::-1, :]
+        voxels = voxels[:, ::-1, :, :]
         muons = (
                 tf.constant([1, -1, 1, -1, 1, 1, 1, -1, 1, -1, 1, 1] + [1] * extra_length, dtype=tf.float32) * muons +
                 tf.constant([0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0] + [0] * extra_length, dtype=tf.float32)
