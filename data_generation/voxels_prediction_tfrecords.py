@@ -4,7 +4,7 @@ import tensorflow as tf
 from data_generation import read_muons_data, read_voxels_data
 
 
-root = r"D:\muons_data\muons_64x64_val"
+root = r"D:\muons_data\muons_40x40"
 
 
 def serialize_example(x1, y1):
@@ -44,6 +44,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = r"D:\muons_data\muons_64x64_val\voxels_prediction.tfrecord"
+filename = r"D:\muons_data\muons_40x40\voxels_prediction_ieee.tfrecord"
 writer = tf.data.experimental.TFRecordWriter(filename, compression_type="GZIP")
 writer.write(serialized_features_dataset)

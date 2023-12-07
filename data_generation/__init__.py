@@ -1,2 +1,2 @@
-from data_generation.utils import read_voxels_data, read_trajectory_data, read_muons_data
+from data_generation.utils import read_voxels_data, read_trajectory_data, read_muons_data, predict_trajectory
 from data_generation.data_augmentation import random_flip, random_rotate

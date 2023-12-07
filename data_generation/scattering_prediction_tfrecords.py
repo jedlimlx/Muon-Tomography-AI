@@ -4,18 +4,17 @@ import tensorflow as tf
 from data_generation import read_trajectory_data, read_voxels_data
 
 
-root = r"D:\Muons Scattering Data"
+root = r"D:\muons_data\muons_trajectory"
 
 
-def serialize_example(x, y, voxels):
+def serialize_example(trajectory, voxels):
     """
     Creates a tf.train.Example message ready to be written to a file.
     """
 
     # Create a dictionary mapping the feature name to the tf.train.Example-compatible data type.
     feature = {
-        "x": tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(x).numpy()])),
-        "y": tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(y).numpy()])),
+        "trajectory": tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(trajectory).numpy()])),
         "voxels": tf.train.Feature(bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(voxels).numpy()]))
     }
 
@@ -34,12 +33,12 @@ def tf_serialize_example(x, y):
 
 
 def data_generator():
-    for i in tqdm.trange(3563):
+    for i in tqdm.trange(14000):
         try:
-            x, y = read_trajectory_data(f"{root}/output/run_{i}.csv")
+            trajectory = read_trajectory_data(f"{root}/output/run_{i}.csv")
             voxels = read_voxels_data(f"{root}/voxels/run_{i}.npy")
 
-            yield serialize_example(x, y, voxels)
+            yield serialize_example(trajectory, voxels)
         except Exception as e:
             print(e)
 
@@ -48,6 +47,6 @@ serialized_features_dataset = tf.data.Dataset.from_generator(
     data_generator, output_types=tf.string, output_shapes=()
 )
 
-filename = f'../scattering_prediction.tfrecord'
-writer = tf.data.experimental.TFRecordWriter(filename)
+filename = f'{root}/trajectory_prediction.tfrecord'
+writer = tf.data.experimental.TFRecordWriter(filename, compression_type="GZIP")
 writer.write(serialized_features_dataset)

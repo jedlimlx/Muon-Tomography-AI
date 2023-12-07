@@ -65,7 +65,7 @@ class Agg3D(Model):
                 projection_dim=downward_filters[0],
                 hidden_layers=hidden_layers,
                 use_lstm=use_lstm,
-                correction_magnitude=use_gaussian
+                poca_correction=use_gaussian
             )
 
         if use_residual: conv = ResidualBlock
@@ -152,9 +152,8 @@ if __name__ == "__main__":
             'threshold': 1e-3,
             'hidden_layers': [8, 4],
             'use_residual': True,
-            'use_lstm': False,
-            # 'use_gaussian': False
-        }  # , poca_nn=poca_nn
+            'use_lstm': False
+        }
     )
     print(model(tf.random.normal((8, 20000, 13))).shape)
 
