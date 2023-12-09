@@ -157,6 +157,7 @@ class TrajectoryPrediction(Model):
 
         self.input_projection = Dense(64)
         self.positional_embedding = SinePositionEncoding()
+        self.positional_embedding_2 = SinePositionEncoding()
 
         self.output_projection = Dense(2)
 
@@ -184,7 +185,7 @@ class TrajectoryPrediction(Model):
             TransformerDecoder(
                 project_dim=projection_dim,
                 num_heads=16,
-                mlp_dim=128,
+                mlp_dim=256,
                 mlp_dropout=0,
                 attention_dropout=0
             ) for _ in range(4)
@@ -196,6 +197,7 @@ class TrajectoryPrediction(Model):
         # run density through some ConvNeXt blocks
         latent = self.encoder(density)
         latent = tf.reshape(latent, (-1, 64, 64))
+        latent = latent + self.positional_embedding_2(x)
 
         # expand and add positional embedding
         x = self.input_projection(x)
