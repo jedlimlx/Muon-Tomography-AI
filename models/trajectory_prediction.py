@@ -197,7 +197,7 @@ class TrajectoryPrediction(Model):
         # run density through some ConvNeXt blocks
         latent = self.encoder(density)
         latent = tf.reshape(latent, (-1, 64, 64))
-        latent = latent + self.positional_embedding_2(x)
+        latent = latent + self.positional_embedding_2(latent)
 
         # expand and add positional embedding
         x = self.input_projection(x)
