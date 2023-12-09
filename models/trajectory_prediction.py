@@ -160,6 +160,12 @@ class TrajectoryPrediction(Model):
         self.positional_embedding_2 = SinePositionEncoding()
 
         self.output_projection = Dense(2)
+        self.smoothing = Sequential(
+            [
+                Dense(2 * projection_dim, activation="gelu"),
+                Dense(projection_dim)
+            ]
+        )
 
         self.encoder = Sequential(
             [
@@ -206,6 +212,11 @@ class TrajectoryPrediction(Model):
         # run transformer decoder block between x and the latent
         for decoder_layer in self.decoder:
             x = decoder_layer((x, latent))
+
+        # add MLP to try and smooth the predictions
+        x = tf.transpose(x, (0, 2, 1))
+        x = self.smoothing(x)
+        x = tf.transpose(x, (0, 2, 1))
 
         # output projection
         x = self.output_projection(x)
