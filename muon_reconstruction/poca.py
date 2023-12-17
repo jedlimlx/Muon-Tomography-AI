@@ -130,7 +130,7 @@ def poca(x, p, ver_x, ver_p, p_estimate=None, resolution=64, r=1, r2=1):
     output = tf.split(output, 2, axis=1)
     scattering_voxels, count = output[0], output[1]
 
-    return tf.math.divide_no_nan(tf.math.reduce_sum(scattering_voxels, axis=0), tf.math.reduce_sum(count, axis=0)), count
+    return tf.math.divide_no_nan(tf.math.reduce_sum(scattering_voxels, axis=0), tf.math.reduce_sum(count, axis=0))
 
 
 if __name__ == "__main__":
