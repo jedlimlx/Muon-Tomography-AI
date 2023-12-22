@@ -1,12 +1,7 @@
 import tensorflow as tf
-
+from layers.agg_2d import MLP
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
-
-from layers.poca import poca
-from layers.agg_2d import MLP
-from layers.convnext_block import ConvNeXtBlock
-from layers.residual_block import ResidualBlock
 
 
 class ScatterAndAvg3D(Layer):

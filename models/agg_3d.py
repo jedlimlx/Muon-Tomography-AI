@@ -35,6 +35,7 @@ class Agg3D(Model):
             use_lstm=False,
             use_residual=False,
             use_gaussian=False,
+            non_scattered_mul=None,
             *args, **kwargs
     ):
         super(Agg3D, self).__init__(*args, **kwargs)
@@ -47,6 +48,7 @@ class Agg3D(Model):
         self.threshold = threshold
 
         self.hidden_layers = hidden_layers
+        self.non_scattered_mul = non_scattered_mul
 
         if not use_gaussian:
             self.agg = ScatterAndAvg3D(
@@ -120,7 +122,12 @@ class Agg3D(Model):
 
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate
-        positions = poca(*tf.split(inputs[..., :12], 4, axis=-1), self.threshold, self.poca_nn)
+        positions = poca(
+            *tf.split(inputs[..., :12], 4, axis=-1),
+            self.threshold,
+            self.poca_nn,
+            not_scattered_mul=self.non_scattered_mul
+        )
         x = self.agg([positions, inputs])
 
         skip_outputs = []
@@ -143,16 +150,15 @@ class Agg3D(Model):
 if __name__ == "__main__":
     model = Agg3D(
         **{
-            'point_size': 3,
-            'downward_convs': [1, 1, 2, 3, 5],
-            'downward_filters': [8, 16, 64, 128, 256],
+            'point_size': 1,
+            'downward_convs': [1, 2, 3, 4, 5],
+            'downward_filters': [2*8, 2*16, 2*32, 2*64, 2*128],
             'upward_convs': [4, 3, 2, 1],
-            'upward_filters': [128, 64, 16, 8],
+            'upward_filters': [2*64, 2*32, 2*16, 2*8],
             'resolution': 64,
-            'threshold': 1e-3,
-            'hidden_layers': [8, 4],
+            'threshold': 1e-8,
             'use_residual': True,
-            'use_lstm': False
+            'non_scattered_mul': 0.5
         }
     )
     print(model(tf.random.normal((8, 20000, 13))).shape)
