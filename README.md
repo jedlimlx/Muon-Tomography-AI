@@ -82,12 +82,17 @@ Some sample reconstructions from our model can be found below.
 
 >3D reconstructions produced by µ-Net-L at various dosages. The improvement in reconstruction quality as the dosage increases can be seen clearly.
 
+<br>
+<br>
 
 ![img_2.png](img_2.png)
 
 >2D cross-sections of the 3D reconstructions produced by µ-Net-L at various dosages. The improvement in
 reconstruction quality as the dosage increases can be seen clearly. We also see that some cross-sections appear to have worse cross-sections.
 This is because the materials being reconstructed have a high radiation length, so the muons do not scatter very much.
+
+<br>
+<br>
 
 ![img_3.png](img_3.png)
 
