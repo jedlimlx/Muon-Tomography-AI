@@ -5,8 +5,24 @@ from tensorflow.keras.models import *
 
 
 class ScatterAndAvg3D(Layer):
+    """
+    Implements the scattering operation
+    """
     def __init__(self, resolution, channels, hidden_layers=(8, 4),
                  point_size=3, projection_dim=None, poca_nn=False, use_lstm=False, **kwargs):
+        """
+        Initialises the scattering operation
+        Args:
+            resolution: The resolution of the target object that is to be reconstructed
+            channels: The number of channels of the output of the scattering operation
+            hidden_layers: The number of hidden layers of the MLP used to process the muon detections (as a multiple of
+            the projection dim)
+            point_size: The size of the cube that is being placed within the voxel grid
+            projection_dim: The projection dimension, should be channels * point_size ** 3
+            poca_nn: Use an (already trained) neural network to compute the scattering points?
+            use_lstm: Use an LSTM to process the entire set of muon detections together?
+        """
+
         super().__init__(**kwargs)
         self.resolution = resolution
         self.point_size = point_size
@@ -80,7 +96,7 @@ class ScatterAndAvg3D(Layer):
         counts = tf.scatter_nd(indices, tf.ones_like(features),
                                shape=(b, self.resolution, self.resolution, self.resolution, self.channels))
 
-        return self.pointwise_conv(tf.concat([x, counts[..., 0:1]], axis=-1))  # tf.math.divide_no_nan(x, counts)
+        return self.pointwise_conv(tf.concat([x, counts[..., 0:1]], axis=-1))
 
 
 if __name__ == "__main__":

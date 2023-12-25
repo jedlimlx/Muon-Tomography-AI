@@ -5,7 +5,6 @@ from tensorflow.keras.models import *
 
 from layers.poca import poca
 from layers.agg_3d import ScatterAndAvg3D
-from layers.gaussian_agg3d import GaussianScatterAndAvg3D
 from layers.convnext_block import ConvNeXtBlock
 from layers.residual_block import ResidualBlock
 
@@ -21,6 +20,9 @@ _3d_base_params = {
 
 
 class Agg3D(Model):
+    """
+    The complete mu-Net model
+    """
     def __init__(
             self,
             point_size=3,
@@ -34,10 +36,28 @@ class Agg3D(Model):
             hidden_layers=(8, 4),
             use_lstm=False,
             use_residual=False,
-            use_gaussian=False,
             non_scattered_mul=None,
             *args, **kwargs
     ):
+        """
+        Initialises mu-Net
+        Args:
+            point_size: The size of the cube being placed within the voxel grid
+            downward_convs: The number of convolutional blocks at each downard stage of the U-Net
+            downward_filters: The number of filters for each of the downward stages
+            upward_convs: The number of convolutional blocks at each upward stage of the U-Net
+            upward_filters: The number of filters for each of the upward stages
+            resolution: The resolution of the voxel grid outputted by mu-Net
+            threshold: A threshold for when to consider a muon to not scatter
+            poca_nn: Use an (already trained) neural network to compute the scattering points?
+            hidden_layers: The number of hidden layers of the MLP used to process the muon detections (as a multiple of
+            the projection dim)
+            use_lstm: Use an LSTM to process the entire set of muon detections together?
+            use_residual: Use Residual Blocks? (default is ConvNeXt)
+            non_scattered_mul: At which point along the trajectory of the non-scattered muons should they be placed
+            (as a fraction of total distance travelled), put None for random placement
+        """
+
         super(Agg3D, self).__init__(*args, **kwargs)
         self.resolution = resolution
         self.point_size = point_size
@@ -50,25 +70,14 @@ class Agg3D(Model):
         self.hidden_layers = hidden_layers
         self.non_scattered_mul = non_scattered_mul
 
-        if not use_gaussian:
-            self.agg = ScatterAndAvg3D(
-                resolution=resolution,
-                channels=downward_filters[0],
-                point_size=point_size,
-                projection_dim=point_size ** 3 * downward_filters[0],
-                hidden_layers=hidden_layers,
-                use_lstm=use_lstm
-            )
-        else:
-            self.agg = GaussianScatterAndAvg3D(
-                resolution=resolution,
-                channels=downward_filters[0],
-                point_size=point_size,
-                projection_dim=downward_filters[0],
-                hidden_layers=hidden_layers,
-                use_lstm=use_lstm,
-                poca_correction=use_gaussian
-            )
+        self.agg = ScatterAndAvg3D(
+            resolution=resolution,
+            channels=downward_filters[0],
+            point_size=point_size,
+            projection_dim=point_size ** 3 * downward_filters[0],
+            hidden_layers=hidden_layers,
+            use_lstm=use_lstm
+        )
 
         if use_residual: conv = ResidualBlock
         else: conv = ConvNeXtBlock

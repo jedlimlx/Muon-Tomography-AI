@@ -19,27 +19,78 @@ investigations into the potential of deep learning to revolutionise this field.
 Our dataset can be found https://www.kaggle.com/datasets/tomandjerry2005/muons-scattering-dataset. 
 The code for data generation can be found at https://github.com/jedlimlx/Muons-Data-Generation.
 
-The weights of the best performing models of each dosage at released under GitHub Releases. To load the model, run
-```python
-from layers.agg_3d import Agg3D
+## Loading Weights
 
+The weights of the best performing models of each dosage at released under GitHub Releases. They can also be found at
+https://www.kaggle.com/datasets/tomandjerry2005/mu-net-weights.
+
+For the tiny model size,
+```python
 model = Agg3D(
     **{
-        'point_size': 3,
-        'downward_convs': [1, 1, 2, 3, 5],
-        'downward_filters': [8, 16, 64, 128, 256],
+        'point_size': 1,
+        'downward_convs': [1, 2, 3, 4, 5],
+        'downward_filters': [8, 16, 32, 64, 128],
         'upward_convs': [4, 3, 2, 1],
-        'upward_filters': [128, 64, 16, 8],
+        'upward_filters': [64, 32, 16, 8],
         'resolution': 64,
-        'noise_level': 0,
-        'threshold': 1e-3
+        'threshold': 1e-8
     }
 )
-model.load_weights("path-to-weights.h5")
 ```
+
+For the base model size,
+```python
+model = Agg3D(
+    **{
+        'point_size': 1,
+        'downward_convs': [1, 2, 4, 4, 6],
+        'downward_filters': [16, 32, 64, 128, 256],
+        'upward_convs': [4, 4, 2, 1],
+        'upward_filters': [128, 64, 32, 16],
+        'resolution': 64,
+        'threshold': 1e-8
+    }
+)
+```
+
+For the large model size,
+```python
+model = Agg3D(
+    **{
+        'point_size': 1,
+        'downward_convs': [1, 2, 4, 6, 8],
+        'downward_filters': [24, 48, 96, 192, 384],
+        'upward_convs': [6, 4, 2, 1],
+        'upward_filters': [192, 96, 48, 24],
+        'resolution': 64,
+        'threshold': 1e-8
+    }
+)
+```
+
+## Training the Model
+
+Some sample code for training the model can be found at https://www.kaggle.com/code/tomandjerry2005/mu-net-public-notebook-training.
+
+## Sample Reconstructions
 
 Some sample reconstructions from our model can be found below.
 
+![img_1.png](img_1.png)
 ![img.png](img.png)
 
-(left) ground truth, (middle) $\mu$_net, (right) point of closest approach
+>3D reconstructions produced by µ-Net-L at various dosages. The improvement in reconstruction quality as the dosage increases can be seen clearly.
+
+
+![img_2.png](img_2.png)
+
+>2D cross-sections of the 3D reconstructions produced by µ-Net-L at various dosages. The improvement in
+reconstruction quality as the dosage increases can be seen clearly. We also see that some cross-sections appear to have worse cross-sections.
+This is because the materials being reconstructed have a high radiation length, so the muons do not scatter very much.
+
+![img_3.png](img_3.png)
+
+> This is a 3D plot and a cross-section of one of the imaging targets from the testing set. The ability
+of the model to reconstruct the approximate shapes and differentiate materials is shown clearly. However, there is still a significant amount
+of blurring. (left) ground truth, (middle) µ-Net, (right) PoCA
