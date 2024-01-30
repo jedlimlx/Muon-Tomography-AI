@@ -1,8 +1,8 @@
 import tensorflow as tf
-keras = tf.keras
 
 from keras.models import Model, Sequential
 from keras.layers import *
+import keras
 
 from keras_nlp.layers import SinePositionEncoding
 

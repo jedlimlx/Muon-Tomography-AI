@@ -1,5 +1,4 @@
 import tensorflow as tf
-keras = tf.keras
 
 import keras.backend as K
 from keras.layers import *

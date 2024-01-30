@@ -1,7 +1,7 @@
-from keras_core.layers import *
+from keras.layers import *
 from layers import KMeans
 from layers import KNN
-from keras_core import ops
+from keras import ops
 
 
 class KNNDownSampling(Layer):
@@ -50,12 +50,12 @@ class WindowAttention(Layer):
         self.window_size = window_size
         self.heads = heads
         self.scale = (dim // heads) ** -0.5
-        self.q_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}/q_dense')
-        self.k_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}/k_dense')
-        self.v_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}/v_dense')
-        self.dropout_1 = Dropout(dropout, name=f'{self.name}/attn_drop')
-        self.dropout_2 = Dropout(dropout, name=f'{self.name}/proj_drop')
-        self.proj = Dense(dim, name=f'{self.name}/proj_dense')
+        self.q_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}-q_dense')
+        self.k_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}-k_dense')
+        self.v_dense = Dense(dim, use_bias=qkv_bias, name=f'{self.name}-v_dense')
+        self.dropout_1 = Dropout(dropout, name=f'{self.name}-attn_drop')
+        self.dropout_2 = Dropout(dropout, name=f'{self.name}-proj_drop')
+        self.proj = Dense(dim, name=f'{self.name}-proj_dense')
 
     def call(self, x, *args, **kwargs):
         _, windows, window_size, d = x.shape

@@ -1,10 +1,5 @@
 import tensorflow as tf
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
-
-from functools import partial
-
 
 def poca(x, p, ver_x, ver_p, threshold=1e-8, nn=None, not_scattered_mul=None):
     if nn is None:

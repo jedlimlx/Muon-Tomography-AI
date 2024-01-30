@@ -1,6 +1,6 @@
-from keras_core.layers import *
-from keras_core.models import *
-from keras_core import ops
+from keras.layers import *
+from keras.models import *
+from keras import ops
 import tensorflow as tf
 
 

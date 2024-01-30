@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 
 from layers.poca import poca
 from layers.agg_3d import ScatterAndAvg3D
@@ -91,9 +91,9 @@ class Agg3D(Model):
                     downward_filters[stage],
                     kernel_size=3,
                     dims=3,
-                    name=f'{self.name}/downward_stage_{stage}/block_{c}'
+                    name=f'{self.name}-downward_stage_{stage}-block_{c}'
                 ))
-            self.downward_convs.append(Sequential(stack, name=f'{self.name}/downward_stage_{stage}'))
+            self.downward_convs.append(Sequential(stack, name=f'{self.name}-downward_stage_{stage}'))
 
         self.downsampling = []
         self.upsampling = []
@@ -101,19 +101,19 @@ class Agg3D(Model):
         for stage in range(len(downward_convs) - 1):
             # downsampling convolutions
             self.downsampling.append(Sequential([
-                LayerNormalization(epsilon=1e-6, name=f'{self.name}/downward_stage_{stage}/downsampling/layer_norm'),
+                LayerNormalization(epsilon=1e-6, name=f'{self.name}-downward_stage_{stage}-downsampling-layer_norm'),
                 Conv3D(filters=downward_filters[stage + 1],
                        kernel_size=2,
                        strides=2,
-                       name=f'{self.name}/downward_stage_{stage}/downsampling/conv2d',
+                       name=f'{self.name}-downward_stage_{stage}-downsampling-conv2d',
                        padding='same')
-            ], name=f'{self.name}/downward_stage_{stage}/downsampling'))
+            ], name=f'{self.name}-downward_stage_{stage}-downsampling'))
 
             # upsampling + convolutions
             self.upsampling.append(Sequential([
-                Dense(units=upward_filters[stage], name=f'{self.name}/upward_stage_{stage}/upsampling/pointwise_conv'),
-                LayerNormalization(epsilon=1e-6, name=f'{self.name}/upward_stage_{stage}/upsampling/layer_norm'),
-                UpSampling3D(name=f'{self.name}/upward_stage_{stage}/upsampling/upsampling'),
+                Dense(units=upward_filters[stage], name=f'{self.name}-upward_stage_{stage}-upsampling-pointwise_conv'),
+                LayerNormalization(epsilon=1e-6, name=f'{self.name}-upward_stage_{stage}-upsampling-layer_norm'),
+                UpSampling3D(name=f'{self.name}-upward_stage_{stage}-upsampling-upsampling'),
             ]))
 
             # upward ConvNeXt blocks
@@ -123,11 +123,11 @@ class Agg3D(Model):
                     upward_filters[stage],
                     kernel_size=3,
                     dims=3,
-                    name=f'{self.name}/upward_stage_{stage}/block_{c}'
+                    name=f'{self.name}-upward_stage_{stage}-block_{c}'
                 ))
-            self.upward_convs.append(Sequential(stack, name=f'{self.name}/upward_stage_{stage}'))
+            self.upward_convs.append(Sequential(stack, name=f'{self.name}-upward_stage_{stage}'))
 
-        self.final_conv = Conv3D(1, 1, name=f'{self.name}/final_conv')
+        self.final_conv = Conv3D(1, 1, name=f'{self.name}-final_conv')
 
     def call(self, inputs, training=None, mask=None):
         # data format of inputs is x, y, z, px, py, pz, ver_x, ver_y, ver_z, ver_px, ver_py, ver_pz, p_estimate

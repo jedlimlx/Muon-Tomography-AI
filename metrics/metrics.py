@@ -1,7 +1,8 @@
 import tensorflow as tf
+import keras
 
 
-class SSIM(tf.keras.metrics.Mean):
+class SSIM(keras.metrics.Mean):
     def __init__(self, d_range=None, rescaling=False, mean=None, std=None, name='ssim', **kwargs):
         super(SSIM, self).__init__(name=name, **kwargs)
         self.shape = None
@@ -34,7 +35,7 @@ class SSIM(tf.keras.metrics.Mean):
         return cfg
 
 
-class PSNR(tf.keras.metrics.Mean):
+class PSNR(keras.metrics.Mean):
     def __init__(self, d_range=None, rescaling=False, mean=None, std=None, name='psnr', **kwargs):
         super(PSNR, self).__init__(name=name, **kwargs)
         self.d_range = d_range

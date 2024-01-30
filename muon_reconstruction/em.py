@@ -8,46 +8,55 @@ def get_masks(delta_t):
     mask_z = tf.logical_and(delta_t[..., 2] < delta_t[..., 0], delta_t[..., 2] < delta_t[..., 1])
     mask = tf.stack([mask_x, mask_y, mask_z], axis=-1)
     mask_int = tf.cast(mask, tf.int32)
-    mask_float = tf.cast(mask, tf.float32)
+    mask_float = tf.cast(mask, delta_t.dtype)
 
     return mask_int, mask_float
 
 
-def voxel_traversal(orig, dirn, t_end, resolution=16):
+def voxel_traversal(orig, dirn, t1, resolution=16):
     visited_voxels = tf.TensorArray(dtype=tf.int32, size=resolution, dynamic_size=True)
-    exit_points = tf.TensorArray(dtype=tf.float32, size=resolution, dynamic_size=True)
-    path_lengths = tf.TensorArray(dtype=tf.float32, size=resolution, dynamic_size=True)  # L in the paper
+    path_lengths = tf.TensorArray(dtype=orig.dtype, size=resolution, dynamic_size=True)  # L in the paper
+    cont_arr = tf.TensorArray(dtype=orig.dtype, size=resolution, dynamic_size=True)
     # accumulated_path_lengths = tf.TensorArray(dtype=tf.float32, size=resolution, dynamic_size=True)
 
-    current_position = orig
-    current_voxel = tf.cast(tf.floor(orig * resolution), tf.int32)
-    t = tf.zeros(orig.shape[:-1])
+    t_start = (tf.cast(dirn < 0, orig.dtype) - orig) / dirn
+    t_start = tf.where(tf.math.is_finite(t_start), t_start, t_start.dtype.min)
+    t_start = tf.reduce_max(t_start, axis=-1)
+    t_start = tf.maximum(t_start, 0)
+    t_end = (tf.cast(dirn > 0, orig.dtype) - orig) / dirn
+    t_end = tf.where(tf.math.is_finite(t_end), t_end, t_end.dtype.max)
+    t_end = tf.reduce_min(t_end, axis=-1)
+    t_end = tf.minimum(t1, t_end)
+    current_position = orig + dirn * t_start[..., tf.newaxis]
+    current_voxel = tf.cast(tf.floor(current_position * resolution), tf.int32)
+    t = t_start
 
     unit_step = tf.sign(dirn)
     unit_step_int = tf.cast(unit_step, tf.int32)
     unit_step_relu = tf.nn.relu(unit_step)
-    end = orig + t_end * dirn
 
     cont = t < t_end
     counter = 0
-    while tf.reduce_any(cont):
-        next_voxel_boundary = (tf.cast(current_voxel, tf.float32) + unit_step_relu) / resolution
+    while tf.reduce_any(cont) or counter < resolution - 1:
+        next_voxel_boundary = (tf.cast(current_voxel, orig.dtype) + unit_step_relu) / resolution
         delta_t = (next_voxel_boundary - current_position) / dirn
+        delta_t = tf.where(tf.math.is_finite(delta_t), delta_t, delta_t.dtype.max)
 
         mask_int, mask_float = get_masks(delta_t)
         cont = tf.logical_and(t < t_end, cont)
+        cont_float = tf.cast(cont, orig.dtype)
         t = tf.minimum(t_end, t + tf.reduce_min(delta_t, axis=-1))
-
         exit_point = orig + dirn * t[..., tf.newaxis]
         # exit_point = tf.where((t < t_end)[..., tf.newaxis], orig + dirn * t[..., tf.newaxis], end)
         path_length = tf.math.reduce_euclidean_norm(exit_point - current_position, axis=-1)
         current_position = exit_point
 
         current_voxel = tf.where(cont[..., tf.newaxis], current_voxel, -1)
+        path_length = cont_float * path_length
 
         visited_voxels = visited_voxels.write(counter, current_voxel)
-        exit_points = exit_points.write(counter, exit_point)
         path_lengths = path_lengths.write(counter, path_length)
+        cont_arr = cont_arr.write(counter, cont_float)
 
         current_voxel += mask_int * unit_step_int
 
@@ -56,172 +65,252 @@ def voxel_traversal(orig, dirn, t_end, resolution=16):
     rank = len(orig.shape)
     transpose_order = [*list(range(1, rank)), 0, rank]
     visited_voxels = tf.transpose(visited_voxels.stack(), transpose_order)
-    exit_points = tf.transpose(exit_points.stack(), transpose_order)
     path_lengths = tf.transpose(path_lengths.stack(), transpose_order[:-1])
+    cont_arr = tf.transpose(cont_arr.stack(), transpose_order[:-1])
 
-    return visited_voxels, exit_points, path_lengths
+    return visited_voxels, path_lengths, cont_arr
 
 
-def expectation_maximization(x, p, ver_x, ver_p, p_est, p_0=13.6, angle_error=0., position_error=0., resolution=64, its=5, **poca_params):
-    z_end = tf.math.reduce_mean(x[..., -1])
-    z_start = tf.math.reduce_mean(x[..., -1])
+def get_ray_data(inp):
+    x_out, y_out, z_out, px_out, py_out, pz_out, x_in, y_in, z_in, px_in, py_in, pz_in, p_est = tf.unstack(
+        inp[..., :-1], axis=-1)
 
-    t_int = (z_end - z_start) / ver_p[..., -1]
+    theta_x_in = tf.atan(px_in / pz_in)
+    theta_y_in = tf.atan(py_in / pz_in)
+    theta_x_out = tf.atan(px_out / pz_out)
+    theta_y_out = tf.atan(py_out / pz_out)
 
-    x0 = z_start + t_int[..., tf.newaxis] * (z_end - z_start)
-    dx = tf.math.reduce_euclidean_norm(x - x0, axis=-1)
+    # x and y scattering angle
+    d_theta_x = theta_x_out - theta_x_in
+    d_theta_y = theta_y_out - theta_y_in
 
-    dtheta = tf.math.acos(tf.clip_by_value(tf.reduce_sum(p * ver_p, axis=-1), -1., 1.))
+    # average x and y ray angle
+    avg_theta_x = (theta_x_in + theta_x_out) / 2
+    avg_theta_y = (theta_y_in + theta_y_out) / 2
 
-    data = tf.stack([dx, dtheta], axis=-1)[..., tf.newaxis, :, tf.newaxis]  # D vector
+    # projected x and y position
+    x_proj = x_in + tf.tan(theta_x_in) * (z_out - z_in)
+    y_proj = y_in + tf.tan(theta_y_in) * (z_out - z_in)
 
-    poca_point, _ = poca_points(x, p, ver_x, ver_p)
-    dirn_1 = poca_point - ver_x
-    dirn_1 = dirn_1 / tf.math.reduce_euclidean_norm(dirn_1, axis=-1, keepdims=True)
+    # adjustment factors for 3D path length
+    f_xy = tf.tan(theta_x_in) ** 2 + tf.tan(theta_y_in) ** 2 + 1
+    f_x = tf.tan(theta_x_in) ** 2 + 1
+    f_y = tf.tan(theta_y_in) ** 2 + 1
 
-    indices_1, exit_points_1, path_lengths_1 = voxel_traversal(x, dirn_1, 1., resolution=resolution)
+    # x and y displacement
+    # the original author gives 2 different expressions for this in his 2007 paper and PhD thesis
+    # this is the expression from the PhD dissertation. they are very similar in value
+    d_x = (x_out - x_proj) * tf.sqrt(f_xy / f_x) * tf.cos(avg_theta_x)
+    d_y = (y_out - y_proj) * tf.sqrt(f_xy / f_y) * tf.cos(avg_theta_y)
+    p_rel = (15 / p_est) ** 2
+    return tf.stack([d_theta_x, d_theta_y, d_x, d_y, p_rel], axis=-1)
 
-    dirn_2 = x - poca_point
-    dirn_2 = dirn_2 / tf.math.reduce_euclidean_norm(dirn_2, axis=-1, keepdims=True)
-    indices_2, exit_points_2, path_lengths_2 = voxel_traversal(poca_point, dirn_2, 1., resolution=resolution)
 
-    poca_voxel = tf.cast(tf.floor(poca_point * resolution), tf.int32)
+# convenience class. there's no error handling at all and only multiply, inverse and trace is implemented
+class Matrix:
+    def __init__(self, data):
+        self.data = data
+        self.shape = (len(data), len(data[0]))
+
+    def __matmul__(self, other):
+        result = []
+        for i in range(len(self.data)):
+            row = []
+            for j in range(len(other.data[0])):
+                acc = 0
+                for k in range(len(other.data)):
+                    acc = acc + self.data[i][k] * other.data[k][j]
+                row.append(acc)
+            result.append(row)
+        return Matrix(result)
+
+    def __mul__(self, other):
+        return Matrix([[self.data[i][j] * other for j in range(len(self.data[i]))] for i in range(self.data)])
+
+    def __rmul__(self, other):
+        return Matrix([[self.data[i][j] * other for j in range(len(self.data[i]))] for i in range(len(self.data))])
+
+    @property
+    def inverse(self):
+        det = self.data[0][0] * self.data[1][1] - self.data[0][1] * self.data[1][0]
+        return Matrix([[self.data[1][1] / det, -self.data[0][1] / det],
+                       [-self.data[1][0] / det, self.data[0][0] / det]])
+
+    @property
+    def trace(self):
+        return Matrix([[self.data[0][0] + self.data[1][1]]])
+
+
+# %%
+class SparseHelper:
+    def __init__(self, tensor):
+        self.tensor = tensor
+
+    def __mul__(self, other):
+        try:
+            return SparseHelper(self.tensor * other)
+        except ValueError:
+            return SparseHelper(tf.sparse.map_values(tf.multiply, self.tensor, other))
+
+    def __rmul__(self, other):
+        try:
+            return SparseHelper(self.tensor * other)
+        except ValueError:
+            return SparseHelper(tf.sparse.map_values(tf.multiply, self.tensor, other))
+
+    def __pow__(self, power, modulo=None):
+        return SparseHelper(tf.sparse.map_values(tf.pow, self.tensor, power))
+
+    def __add__(self, other):
+        if isinstance(other, tf.Tensor):
+            return SparseHelper(tf.sparse.add(self.tensor, other))
+        elif isinstance(other, SparseHelper):
+            return SparseHelper(tf.sparse.map_values(tf.add, self.tensor, other.tensor))
+        else:
+            return SparseHelper(tf.sparse.map_values(tf.add, self.tensor, other))
+
+    def __radd__(self, other):
+        if isinstance(other, tf.Tensor):
+            return SparseHelper(tf.sparse.add(self.tensor, other))
+        elif isinstance(other, SparseHelper):
+            return SparseHelper(tf.sparse.map_values(tf.add, self.tensor, other.tensor))
+        else:
+            return SparseHelper(tf.sparse.map_values(tf.add, self.tensor, other))
+
+    def __sub__(self, other):
+        if isinstance(other, tf.Tensor):
+            return SparseHelper(tf.sparse.add(self.tensor, -other))
+        elif isinstance(other, SparseHelper):
+            return SparseHelper(tf.sparse.map_values(tf.math.subtract, self.tensor, other.tensor))
+        else:
+            return SparseHelper(tf.sparse.map_values(tf.math.subtract, self.tensor, other))
+
+    def __truediv__(self, other):
+        try:
+            return SparseHelper(self.tensor / other)
+        except ValueError:
+            return SparseHelper(tf.sparse.map_values(tf.divide, self.tensor, other))
+
+
+# %%
+def mlem(inp, resolution=64, det_resolution=None, lambda_init=None, its=5):
+    if lambda_init is None:
+        lambda_init = tf.fill((tf.shape(inp)[0], 1, resolution, resolution, resolution),
+                              tf.constant(1 / 3039, dtype=inp.dtype))
+    scattering_density = lambda_init
+    data = get_ray_data(inp)
+    p_r = data[..., -1, tf.newaxis, tf.newaxis, tf.newaxis]
+
+    # data vectors
+    data_x = Matrix([
+        [data[..., 0][..., tf.newaxis, tf.newaxis, tf.newaxis]],
+        [data[..., 2][..., tf.newaxis, tf.newaxis, tf.newaxis]]
+    ])
+    data_x_t = Matrix([[
+        data[..., 0][..., tf.newaxis, tf.newaxis, tf.newaxis],
+        data[..., 2][..., tf.newaxis, tf.newaxis, tf.newaxis]
+    ]])
+    data_y = Matrix([
+        [data[..., 1][..., tf.newaxis, tf.newaxis, tf.newaxis]],
+        [data[..., 3][..., tf.newaxis, tf.newaxis, tf.newaxis]]
+    ])
+    data_y_t = Matrix([[
+        data[..., 1][..., tf.newaxis, tf.newaxis, tf.newaxis],
+        data[..., 3][..., tf.newaxis, tf.newaxis, tf.newaxis]
+    ]])
+
+    end = inp[..., :3]
+    start = inp[..., 6:9]
+    poca = poca_points(inp[..., :3], inp[..., 3:6], inp[..., 6:9], inp[..., 9:12])[0]
+
+    dirn_1 = poca - start
+
+    indices_1, path_lengths_1, cont_1 = voxel_traversal(start, dirn_1, 1., resolution=resolution)
+
+    dirn_2 = end - poca
+    indices_2, path_lengths_2, cont_2 = voxel_traversal(poca, dirn_2, 1., resolution=resolution)
+
+    poca_voxel = tf.cast(tf.floor(poca * resolution), tf.int32)
     poca_mask = tf.cast(tf.reduce_all(indices_1 == poca_voxel[..., tf.newaxis, :], axis=-1), tf.float32)
-    poca_l2 = path_lengths_1[..., :1]
+    poca_l2 = path_lengths_2[..., :1]
     path_lengths_1 += poca_mask * poca_l2
-
-    exit_points_1 += (exit_points_2[..., :1, :] - poca_point[..., tf.newaxis, :]) * poca_mask[..., tf.newaxis]
-    remaining_path_lengths_1 = (tf.math.reduce_euclidean_norm(poca_point[..., tf.newaxis, :] - exit_points_1, axis=-1) +
-                                tf.math.reduce_euclidean_norm(x - poca_point, axis=-1)[..., tf.newaxis])
-    remaining_path_lengths_2 = tf.math.reduce_euclidean_norm(x[..., tf.newaxis, :] - exit_points_2, axis=-1)
 
     voxel_indices = tf.concat([indices_1, indices_2[..., 1:, :]], axis=-2)
     path_lengths = tf.concat([path_lengths_1, path_lengths_2[..., 1:]], axis=-1)  # L
-    # exit_points = tf.concat([exit_points_1, exit_points_2[..., 1:, :]], axis=-2)
-    remaining_path_lengths = tf.concat([remaining_path_lengths_1, remaining_path_lengths_2[..., 1:]], axis=-1)  # T
+    remaining_path_lengths = tf.cumsum(path_lengths, axis=1, exclusive=True, reverse=True)  # T
 
-    weights = tf.stack([
-        tf.stack([
-            path_lengths,
-            path_lengths ** 2 / 2 + path_lengths * remaining_path_lengths
-        ], axis=-1),
-        tf.stack([
-            path_lengths ** 2 / 2 + path_lengths * remaining_path_lengths,
-            path_lengths ** 3 / 3 + path_lengths ** 2 * remaining_path_lengths + path_lengths * remaining_path_lengths ** 2
-        ], axis=-1)
-    ], axis=-2)  # W matrix
+    weight_11 = path_lengths
+    weight_12 = (path_lengths ** 2 / 2 + path_lengths * remaining_path_lengths) * tf.sign(path_lengths)
+    weight_21 = weight_12
+    weight_22 = (
+                            path_lengths ** 3 / 2 + path_lengths ** 2 * remaining_path_lengths + path_lengths * remaining_path_lengths ** 2) * tf.sign(
+        path_lengths)
 
-    # stuff for scatter_nd
-    batch_indices = tf.range(x.shape[0], dtype=tf.int32)
-    batch_indices = tf.reshape(batch_indices, (-1, 1, 1, 1))
-    batch_indices = tf.repeat(batch_indices, axis=1, repeats=voxel_indices.shape[1])
-    batch_indices = tf.repeat(batch_indices, axis=2, repeats=voxel_indices.shape[2])
-    scatter_indices = tf.concat([batch_indices, voxel_indices], axis=-1)
+    batch_idx = tf.range(tf.shape(voxel_indices)[0])
+    batch_idx = batch_idx[:, tf.newaxis, tf.newaxis, tf.newaxis]
+    batch_idx = tf.repeat(batch_idx, tf.shape(voxel_indices)[1], axis=1)
+    batch_idx = tf.repeat(batch_idx, tf.shape(voxel_indices)[2], axis=2)
+    point_idx = tf.range(tf.shape(indices_1)[1])
+    point_idx = point_idx[tf.newaxis, :, tf.newaxis, tf.newaxis]
+    point_idx = tf.repeat(point_idx, tf.shape(voxel_indices)[0], axis=0)
+    point_idx = tf.repeat(point_idx, tf.shape(voxel_indices)[2], axis=2)
 
-    scattering_density_voxels = poca(x, p, ver_x, ver_p, p_est, resolution=resolution, **poca_params)
-    scattering_density_voxels = tf.transpose(scattering_density_voxels, [0, 2, 1, 3])
-#     print("test")
-    scattering_density = scattering_density_voxels
-    p_rel = (p_est / p_0)[..., tf.newaxis]
-    error = tf.convert_to_tensor([
-            [angle_error * angle_error, angle_error * position_error],
-            [angle_error * position_error, position_error * position_error]
-        ], dtype=x.dtype)  # E matrix
-    intersect = tf.cast(tf.reduce_all(voxel_indices != -1, axis=-1), tf.float32)
-    ray_count = tf.reduce_sum(intersect, axis=-2, keepdims=True)
-    for i in range(its):
-        print(i)
-        scattering_density = tf.gather_nd(params=scattering_density, indices=voxel_indices, batch_dims=1)
-        cov = error + p_rel[..., tf.newaxis, tf.newaxis] ** 2 * tf.reduce_sum(scattering_density[..., tf.newaxis, tf.newaxis] * weights, axis=-3, keepdims=True)
-        cov_inverse = tf.linalg.pinv(cov)
-        conditional_expectation = tf.linalg.matrix_transpose(data) @ cov_inverse @ weights @ cov_inverse @ data
-        conditional_expectation = tf.squeeze(conditional_expectation, [-1, -2])
-        conditional_expectation = 2 * scattering_density + (conditional_expectation - tf.linalg.trace(cov_inverse @ weights)) * p_rel ** 2 * scattering_density ** 2
-        conditional_expectation = conditional_expectation * intersect
+    idx = tf.concat([batch_idx, point_idx, voxel_indices], axis=-1)
+    idx = tf.cast(tf.reshape(idx, (-1, 5)), tf.int64)
+    weight_11 = tf.reshape(weight_11, (-1,))
+    weight_12 = tf.reshape(weight_12, (-1,))
+    weight_21 = tf.reshape(weight_21, (-1,))
+    weight_22 = tf.reshape(weight_22, (-1,))
 
-        scattering_density = conditional_expectation / (2 * ray_count)
-        scattering_density = tf.scatter_nd(indices=scatter_indices, updates=scattering_density, shape=(x.shape[0], resolution, resolution, resolution))
+    mask = tf.reduce_all((idx[:, 2:] >= 0) & (idx[:, 2:] < resolution), axis=-1)
+    idx = tf.boolean_mask(idx, mask, axis=0)
+    weight_11 = tf.boolean_mask(weight_11, mask, axis=0)
+    weight_12 = tf.boolean_mask(weight_12, mask, axis=0)
+    weight_21 = tf.boolean_mask(weight_21, mask, axis=0)
+    weight_22 = tf.boolean_mask(weight_22, mask, axis=0)
 
-    has_intersection = tf.scatter_nd(indices=scatter_indices, updates=tf.ones_like(path_lengths), shape=(x.shape[0], resolution, resolution, resolution)) != 0.
-    return tf.where(has_intersection, scattering_density, scattering_density_voxels)
+    weight_11 = tf.sparse.SparseTensor(idx, weight_11, dense_shape=(
+    tf.shape(inp)[0], tf.shape(inp)[1], resolution, resolution, resolution))
+    weight_11 = SparseHelper(tf.sparse.reorder(weight_11))
+    weight_12 = tf.sparse.SparseTensor(idx, weight_12, dense_shape=(
+    tf.shape(inp)[0], tf.shape(inp)[1], resolution, resolution, resolution))
+    weight_12 = SparseHelper(tf.sparse.reorder(weight_12))
+    weight_21 = tf.sparse.SparseTensor(idx, weight_21, dense_shape=(
+    tf.shape(inp)[0], tf.shape(inp)[1], resolution, resolution, resolution))
+    weight_21 = SparseHelper(tf.sparse.reorder(weight_21))
+    weight_22 = tf.sparse.SparseTensor(idx, weight_22, dense_shape=(
+    tf.shape(inp)[0], tf.shape(inp)[1], resolution, resolution, resolution))
+    weight_22 = SparseHelper(tf.sparse.reorder(weight_22))
 
+    ones = weight_11.tensor.with_values(tf.sign(weight_11.tensor.values))
 
-if __name__ == '__main__':
-    from muon_reconstruction.poca import poca_points
-    import numpy as np
+    weights = Matrix([
+        [weight_11, weight_12],
+        [weight_21, weight_22]
+    ])
 
-    # t = np.array([[8.9960396e-01, 3.6855000e-01, -3.9999998e-01, 4.6292034e-01,
-    #                8.9384042e-02, -8.8188177e-01, -1.5291035e-02, 1.4414498e-01,
-    #                1.4000000e+00, 4.3856499e-01, 1.2083500e-01, -8.9053899e-01,
-    #                1.6993467e+03],
-    #               [9.8696798e-01, -6.6268027e-02, -3.9999998e-01, -2.4601020e-01,
-    #                1.8468954e-01, -9.5150876e-01, 1.4524961e+00, -4.1558695e-01,
-    #                1.4000000e+00, -2.4652000e-01, 1.8461600e-01, -9.5139098e-01,
-    #                1.1741309e+03],
-    #               [4.7593960e-01, 1.0759150e+00, -3.9999998e-01, -1.5553272e-01,
-    #                2.3878953e-01, -9.5853502e-01, 7.6863700e-01, 6.2818700e-01,
-    #                1.4000000e+00, -1.5627100e-01, 2.3800600e-01, -9.5861000e-01,
-    #                9.4515741e+02],
-    #               [-4.6373498e-01, -4.3729603e-01, -3.9999998e-01, -6.5669924e-01,
-    #                3.3458725e-03, -7.5414515e-01, 1.1042360e+00, -4.4450897e-01,
-    #                1.4000000e+00, -6.5704501e-01, 2.8273701e-03, -7.5384599e-01,
-    #                1.7999607e+03],
-    #               [6.4921498e-01, 4.6886909e-01, -3.9999998e-01, -9.8174796e-02,
-    #                4.4913370e-02, -9.9415511e-01, 7.7354199e-01, 4.4384411e-01,
-    #                1.4000000e+00, -2.1419700e-02, -3.0903799e-02, -9.9929303e-01,
-    #                7.5942297e+02]
-    #               ])
-    # end = tf.convert_to_tensor(t[..., :3], tf.float32)
-    # end_p = tf.convert_to_tensor(t[..., 3:6], tf.float32)
-    # orig = tf.convert_to_tensor(t[..., 6:9], tf.float32)
-    # orig_p = tf.convert_to_tensor(t[..., 9:12], tf.float32)
-    # poca_point, _ = poca_points(end, end_p, orig, orig_p)
-    # # print(_)
-    # dir1 = poca_point - orig
-    # dir2 = end - poca_point
-    # orig = tf.concat([orig, poca_point], axis=0)
-    # end = tf.concat([poca_point, end], axis=0)
-    # dirn = tf.concat([dir1, dir2], axis=0)
-    # dirn = dirn / tf.math.reduce_euclidean_norm(dirn, axis=-1, keepdims=True)  # unit vector to make my life easier
-    end = tf.convert_to_tensor([[0., 0.2, 0.1]])
-    orig = tf.convert_to_tensor([[0.001, 0.9, 0.8]])
-    dirn = end - orig
-    t_max = 1.
-    print(orig, dirn, t_max)
-    # print(orig)
-    # print(end)
-    # print(poca_point)
-    # print(dirn)
+    error = 1 / det_resolution if det_resolution is not None else 0
+    for it in range(its):
+        std_dev_11 = p_r * tf.sparse.reduce_sum((weight_11 * scattering_density).tensor, axis=[2, 3, 4], keepdims=True)
+        std_dev_12 = p_r * tf.sparse.reduce_sum((weight_12 * scattering_density).tensor, axis=[2, 3, 4], keepdims=True)
+        std_dev_21 = p_r * tf.sparse.reduce_sum((weight_21 * scattering_density).tensor, axis=[2, 3, 4], keepdims=True)
+        std_dev_22 = (error ** 2) / 12 + p_r * tf.sparse.reduce_sum((weight_22 * scattering_density).tensor,
+                                                                    axis=[2, 3, 4], keepdims=True)
 
-    voxel_indices, exit_points, path_lengths = voxel_traversal(orig, dirn, t_max, 16)
-    # voxel_indices = tf.reshape(voxel_indices, (-1, 3))
-    voxels = tf.scatter_nd(voxel_indices, tf.ones(voxel_indices.shape[:-1]), shape=(16, 16, 16))
+        std_dev = Matrix([
+            [std_dev_11, std_dev_12],
+            [std_dev_21, std_dev_22]
+        ])
+        print(data_x_t @ std_dev.inverse @ weights)
+        std_inv = Matrix([[tf.where(tf.math.is_finite(std_dev.inverse.data[i][j]), std_dev.inverse.data[i][j], 0) for j
+                           in range(len(std_dev.inverse.data[i]))] for i in range(len(std_dev.inverse.data))])
+        s_x = SparseHelper(2 * scattering_density * ones) + (
+                    (data_x_t @ std_inv @ weights @ std_inv @ data_x).data[0][0] -
+                    (std_inv @ weights).trace.data[0][0]) * p_r * scattering_density ** 2
+        s_y = SparseHelper(2 * scattering_density * ones) + (
+                    (data_y_t @ std_inv @ weights @ std_inv @ data_y).data[0][0] -
+                    (std_inv @ weights).trace.data[0][0]) * p_r * scattering_density ** 2
 
-    # print(voxels.shape)
-
-    import matplotlib.pyplot as plt
-
-    plt.imshow(voxels[0].numpy(), origin='lower')
-    plt.plot([0.8 * 16 - 0.5, 0.1 * 16 - 0.5], [0.9 * 16 - 0.5, 0.2 * 16 - 0.5])
-    plt.show()
-
-    ax = plt.figure().add_subplot(projection='3d')
-    ax.voxels(voxels.numpy())
-    plt.show()
-    # plt.plot(voxel_indices[0, :, 0])
-    # plt.show()
-    # plt.plot(voxel_indices[0, :, 1])
-    # plt.show()
-    # plt.plot(voxel_indices[0, :, 2])
-    # plt.show()
-    # print(orig * 64)
-    # print(end * 64)
-    # print(tf.reduce_max(tf.clip_by_value(voxel_indices[1, :, 2], 0, 100)))
-    # print(tf.reduce_min(tf.where(voxel_indices[0, :, 2] == -1, 100, voxel_indices[0, :, 2])))
-
-    # plt.plot(voxel_indices[1, :, 0])
-    # plt.show()
-    # plt.plot(voxel_indices[2, :, 0])
-    # plt.show()
-    # plt.plot(voxel_indices[3, :, 0])
-    # plt.show()
+        s = (s_x + s_y) / 2
+        scattering_density = 0.5 * tf.math.divide_no_nan(tf.sparse.reduce_sum(s.tensor, axis=1, keepdims=True),
+                                                         tf.sparse.reduce_sum(ones, axis=1, keepdims=True))

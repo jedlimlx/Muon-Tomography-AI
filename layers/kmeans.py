@@ -1,13 +1,13 @@
-from keras_core.layers import *
-from keras_core.models import *
-from keras_core import ops
-from keras_core import random
+from keras.layers import *
+from keras.models import *
+from keras import ops
+from keras import random
 import tensorflow as tf
 
 '''
 Adapted from: https://git01lab.cs.univie.ac.at/wolffa95/tpu-k-means.
 
-This file should only be imported after keras_core backend has been set.
+This file should only be imported after keras backend has been set.
 '''
 
 
@@ -20,7 +20,7 @@ class KMeans(Layer):
         self.iterations = iterations
 
     def initialize_centroids(self, points):
-        # todo replace with keras_core ops when they come out
+        # todo replace with keras ops when they come out
         # centroids = random.categorical(ops.ones(ops.shape(points)[:-1]), num_samples=self.clusters)
         # centroids = ops.take_along_axis(points, ops.expand_dims(centroids, -1), axis=1)
         centroids = tf.random.shuffle(tf.transpose(points, [1, 0, 2]))[: self.clusters, ...]

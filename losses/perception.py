@@ -1,6 +1,6 @@
 import tensorflow as tf
-from keras_core.losses import MeanSquaredError
-from keras_core.applications.efficientnet import EfficientNetB3
+from keras.losses import MeanSquaredError
+from keras.applications.efficientnet import EfficientNetB3
 
 model = EfficientNetB3(
     include_top=False,

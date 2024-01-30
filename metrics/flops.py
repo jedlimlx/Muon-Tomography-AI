@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import keras
 
 
 def get_flops(model, model_inputs, strategy=None) -> float:
@@ -54,7 +55,7 @@ def get_flops(model, model_inputs, strategy=None) -> float:
 # Usage
 
 if __name__ == "__main__":
-    image_model = tf.keras.applications.EfficientNetB0(include_top=False, weights=None)
+    image_model = keras.applications.EfficientNetB0(include_top=False, weights=None)
 
     x = tf.constant(np.random.randn(1, 256, 256, 3))
 

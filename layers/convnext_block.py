@@ -1,6 +1,7 @@
 import tensorflow as tf
+import keras
 
-from tensorflow.keras.layers import *
+from keras.layers import *
 
 from layers.regularisation import StochasticDepth
 
@@ -24,6 +25,7 @@ class LayerScale(Layer):
 
     def build(self, input_shape):
         self.gamma = tf.Variable(self.init_values * tf.ones((self.projection_dim,)))
+        self.built = True
 
     def call(self, x, **kwargs):
         return x * self.gamma
@@ -80,7 +82,7 @@ class ConvNeXtBlock(Layer):
                 kernel_size=kernel_size,
                 padding="same",
                 groups=projection_dim,
-                name=self.name + "/depthwise_conv",
+                name=self.name + "-depthwise_conv",
             )
         elif dims == 3:
             self.conv = Conv3D(
@@ -88,23 +90,25 @@ class ConvNeXtBlock(Layer):
                 kernel_size=kernel_size,
                 padding="same",
                 groups=projection_dim,
-                name=self.name + "/depthwise_conv",
+                name=self.name + "-depthwise_conv",
             )
 
-        self.norm = LayerNormalization(epsilon=1e-6, name=self.name + '/layer_norm')
-        self.pw_conv_1 = Dense(4 * projection_dim, activation=activation, name=self.name + '/pointwise_conv_1')
-        self.pw_conv_2 = Dense(projection_dim, name=self.name + '/pointwise_conv_2')
+        self.norm = LayerNormalization(epsilon=1e-6, name=self.name + '-layer_norm')
+        self.pw_conv_1 = Dense(4 * projection_dim, activation=activation, name=self.name + '-pointwise_conv_1')
+        self.pw_conv_2 = Dense(projection_dim, name=self.name + '-pointwise_conv_2')
 
         self.layer_scale = None
         if layer_scale_init_value:
             self.layer_scale = LayerScale(
-                layer_scale_init_value, projection_dim, name=self.name + '/layer_scale',
+                layer_scale_init_value, projection_dim, name=self.name + '-layer_scale',
                 dtype="float32"
             )
 
+            self.layer_scale.build((1,))  # hacky workaround
+
         self.sd = None
         if drop_connect_rate:
-            self.sd = StochasticDepth(drop_connect_rate, name=self.name + '/stochastic_depth')
+            self.sd = StochasticDepth(drop_connect_rate, name=self.name + '-stochastic_depth')
 
     def call(self, inputs, *args, **kwargs):
         x = inputs
@@ -132,8 +136,8 @@ if __name__ == "__main__":
 
     ds_2d = tf.data.Dataset.random(0, False).map(transform2d).batch(256)
 
-    model2d = tf.keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=2)])
-    model2d.compile(optimizer=tf.keras.optimizers.SGD(learning_rate=1), loss='mse')
+    model2d = keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=2)])
+    model2d.compile(optimizer=keras.optimizers.SGD(learning_rate=1), loss='mse')
     model2d.fit(ds_2d, steps_per_epoch=1000, validation_data=ds_2d, validation_steps=100)
 
 
@@ -144,8 +148,8 @@ if __name__ == "__main__":
 
     ds_3d = tf.data.Dataset.random(0, False).map(transform3d).batch(64)
 
-    model3d = tf.keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=3)])
-    model3d.compile(optimizer=tf.keras.optimizers.SGD(learning_rate=1), loss='mse')
+    model3d = keras.Sequential([ConvNeXtBlock(projection_dim=4, drop_connect_rate=0.2, dims=3)])
+    model3d.compile(optimizer=keras.optimizers.SGD(learning_rate=1), loss='mse')
     model3d.fit(ds_3d, steps_per_epoch=1000, validation_data=ds_3d, validation_steps=100)
 
 '''

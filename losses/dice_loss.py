@@ -1,8 +1,8 @@
 import tensorflow as tf
-import keras_core.backend as K
+import keras.backend as K
 from typing import *
 import numpy as np
-from tensorflow.keras.activations import softmax
+from keras.activations import softmax
 
 
 # Stolen from https://github.com/maxvfischer/keras-image-segmentation-loss-functions

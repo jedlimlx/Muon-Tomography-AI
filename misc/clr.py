@@ -2,17 +2,17 @@
 
 
 import os
-import keras_core
+import keras
 import numpy as np
 import warnings
 
-from keras_core.callbacks import Callback
-from keras_core import backend as K
+from keras.callbacks import Callback
+from keras import backend as K
 import tensorflow as tf
 
 
 # Code is ported from https://github.com/fastai/fastai
-class CLR(keras_core.optimizers.schedules.LearningRateSchedule):
+class CLR(keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, num_samples, batch_size, epochs, max_lr, end_percentage):
         super(CLR, self).__init__()
 

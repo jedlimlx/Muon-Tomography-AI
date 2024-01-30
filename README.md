@@ -66,9 +66,9 @@ model = Agg3D(
 )
 ```
 
-## Training the Model
+## Training and Inference
 
-Some sample code for training the model can be found at https://www.kaggle.com/code/tomandjerry2005/mu-net-public-notebook-training.
+Sample training and inference notebooks are available in this repo.
 
 ## Sample Reconstructions
 

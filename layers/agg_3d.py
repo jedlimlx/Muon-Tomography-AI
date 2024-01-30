@@ -1,7 +1,7 @@
 import tensorflow as tf
 from layers.agg_2d import MLP
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 
 
 class ScatterAndAvg3D(Layer):
@@ -49,13 +49,16 @@ class ScatterAndAvg3D(Layer):
             self.projection = MLP(
                 [projection_dim * k for k in hidden_layers],
                 ['gelu', 'gelu'],
-                name=f'{self.name}/projection'
+                name=f'{self.name}-projection'
             )
 
             self.lstm = Bidirectional(LSTM(projection_dim * 4, return_sequences=True))
             self.final_projection = Dense(projection_dim, name=f'out_projection')
 
         self.pointwise_conv = Dense(channels)
+
+    def build(self, input_shape):
+        self.built = True
 
     def call(self, inputs, *args, **kwargs):
         positions, x = inputs

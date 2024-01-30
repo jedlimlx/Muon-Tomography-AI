@@ -1,7 +1,7 @@
 import tensorflow as tf
 
-from tensorflow.keras.layers import *
-from tensorflow.keras.models import *
+from keras.layers import *
+from keras.models import *
 from layers.convnext_block import ConvNeXtBlock
 
 import numpy as np
@@ -30,8 +30,8 @@ class MLP(Layer):
         self.layers = [
             Sequential(
                 [
-                    Dense(units=units[i], activation=activations[i], name=f'{self.name}/dense_{i}'),
-                    Dropout(dropout, name=f'{self.name}/drop_{i}')
+                    Dense(units=units[i], activation=activations[i], name=f'{self.name}-dense_{i}'),
+                    Dropout(dropout, name=f'{self.name}-drop_{i}')
                 ]
             )
             for i in range(len(units))
@@ -97,36 +97,36 @@ class Agg2D(Model):
             for c in range(downward_blocks[stage]):
                 stack.append(ConvNeXtBlock(projection_dim=downward_filters[stage],
                                            dims=2,
-                                           name=f'{self.name}/stage_{stage}/block_{c}'))
-            self.downward_convs.append(Sequential(stack, name=f'{self.name}/stage_{stage}'))
+                                           name=f'{self.name}-stage_{stage}-block_{c}'))
+            self.downward_convs.append(Sequential(stack, name=f'{self.name}-stage_{stage}'))
 
         for stage in range(len(downward_blocks) - 1):
             self.downsampling.append(Sequential([
-                LayerNormalization(epsilon=1e-6, name=f'{self.name}/stage_{stage}/downsampling/layer_norm'),
+                LayerNormalization(epsilon=1e-6, name=f'{self.name}-stage_{stage}-downsampling-layer_norm'),
                 Conv2D(filters=downward_filters[stage + 1],
                        kernel_size=2,
                        strides=2,
-                       name=f'{self.name}/stage_{stage}/downsampling/conv2d',
+                       name=f'{self.name}-stage_{stage}-downsampling-conv2d',
                        padding='same')
-            ], name=f'{self.name}/stage_{stage}/downsampling'))
+            ], name=f'{self.name}-stage_{stage}-downsampling'))
 
             stack = []
             for c in range(upward_blocks[stage]):
                 stack.append(ConvNeXtBlock(projection_dim=upward_filters[stage],
                                            dims=2,
-                                           name=f'{self.name}/up_{stage}/block_{c}'))
-            self.upward_convs.append(Sequential(stack, name=f'{self.name}/up_{stage}'))
+                                           name=f'{self.name}-up_{stage}-block_{c}'))
+            self.upward_convs.append(Sequential(stack, name=f'{self.name}-up_{stage}'))
 
             self.upsampling.append(Sequential([
-                LayerNormalization(epsilon=1e-6, name=f'{self.name}/up_{stage}/upsampling/layer_norm'),
-                UpSampling2D(size=(2, 2), name=f'{self.name}/up_{stage}/upsampling/upsampling'),
-            ], name=f'{self.name}/up_{stage}/upsampling'))
+                LayerNormalization(epsilon=1e-6, name=f'{self.name}-up_{stage}-upsampling-layer_norm'),
+                UpSampling2D(size=(2, 2), name=f'{self.name}-up_{stage}-upsampling-upsampling'),
+            ], name=f'{self.name}-up_{stage}-upsampling'))
 
             self.upsampling_convs.append(
                 Conv2D(filters=upward_filters[stage],
                        kernel_size=1,
                        padding='same',
-                       name=f'{self.name}/up_{stage}/upsampling/conv2d')
+                       name=f'{self.name}-up_{stage}-upsampling-conv2d')
             )
 
     def call(self, inputs, training=None, mask=None):
