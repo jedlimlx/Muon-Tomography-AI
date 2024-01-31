@@ -18,8 +18,7 @@ The code for data generation can be found at https://github.com/jedlimlx/Muons-D
 
 ## Loading Weights
 
-The weights of the best performing models of each dosage at released under GitHub Releases. They can also be found at
-https://www.kaggle.com/datasets/tomandjerry2005/mu-net-weights.
+*We are currently in the process of porting the code to Keras 3 so trained model weights are not available yet.*
 
 For the tiny model size,
 ```python
@@ -66,9 +65,9 @@ model = Agg3D(
 )
 ```
 
-## Training and Inference
+## Training
 
-Sample training and inference notebooks are available in this repo.
+A sample notebook for loading the data and training the model are available in this repo.
 
 ## Sample Reconstructions
 
