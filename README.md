@@ -18,8 +18,6 @@ The code for data generation can be found at https://github.com/jedlimlx/Muons-D
 
 ## Loading Weights
 
-*We are currently in the process of porting the code to Keras 3 so trained model weights are not available yet.*
-
 For the tiny model size,
 ```python
 model = Agg3D(
